@@ -1,0 +1,53 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  max-width: 64px;
+}
+
+.knob {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  touch-action: none;
+  cursor: ns-resize;
+  user-select: none;
+}
+
+.track,
+.value {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.track {
+  stroke: var(--color-paper-4);
+}
+
+.value {
+  stroke: var(--tc, var(--color-accent));
+}
+
+.pointer {
+  stroke: var(--color-ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.caption {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--color-ink-3);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wrap[data-active="true"] .caption {
+  font-family: var(--font-mono);
+  color: var(--color-ink);
+}

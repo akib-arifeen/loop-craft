@@ -1,29 +1,25 @@
-import type { Metadata } from 'next'
-import './globals.css'
-import { ThemeProvider } from '@/components/theme-provider'
+import type { Metadata, Viewport } from "next"
+import { Geist, Geist_Mono } from "next/font/google"
+import "./globals.css"
+
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" })
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono", display: "swap" })
 
 export const metadata: Metadata = {
-  title: 'loop-craft',
-  description: 'music looper with DAW',
+  title: "LoopCraft — browser multi-track looper",
+  description: "Record, overdub and mix loops in the browser. Sample-accurate Web Audio engine, built-in synth kit, WAV export.",
 }
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#16130f",
+}
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
-          enableSystem={false}
-          disableTransitionOnChange
-        >
-          {children}
-        </ThemeProvider>
-      </body>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
+      <body>{children}</body>
     </html>
   )
 }

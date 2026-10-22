@@ -1,0 +1,44 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+}
+
+.seg {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.segBtn {
+  flex: 1;
+  max-width: 120px;
+  height: 36px;
+  font-size: 13px;
+  color: var(--color-ink-2);
+}
+
+.segBtn[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  border-color: transparent;
+}
+
+.roll {
+  width: 100%;
+  flex: 1;
+  min-height: 100px;
+  max-height: 280px;
+  display: block;
+  background: var(--color-paper);
+  border-radius: var(--radius-m);
+}
+
+.bar {
+  stroke: var(--color-paper-4);
+  stroke-width: 1;
+}
+
+.note {
+  fill: var(--tc);
+}
