@@ -246,3 +246,23 @@
     white-space: nowrap;
   }
 }
+
+/* Embed and small laptops (e.g. the portfolio's 800x520 frame): keep the header on one row. */
+@media (min-width: 720px) and (max-width: 959.98px) {
+  .header { column-gap: var(--space-2); }
+  .segLabel { display: none; }
+  .label { display: none; }
+}
+
+/* 720–759px: the one-row header needs a little more room; the h1 stays for screen readers. */
+@media (min-width: 720px) and (max-width: 759.98px) {
+  .wordmark {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

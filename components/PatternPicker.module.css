@@ -42,3 +42,11 @@
 .note {
   fill: var(--tc);
 }
+
+.noteScale {
+  fill: color-mix(in oklch, var(--tc) 55%, var(--color-ink));
+}
+
+.noteChromatic {
+  fill: var(--color-ink-3);
+}

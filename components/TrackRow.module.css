@@ -94,8 +94,8 @@
 
 .ms {
   flex: none;
-  width: var(--size-control-s);
-  height: var(--size-control-s);
+  width: var(--size-control-m);
+  height: var(--size-control-m);
   font-size: var(--text-sm);
   color: var(--color-ink-2);
 }

@@ -78,6 +78,6 @@
 @media (min-width: 720px) and (min-height: 761px) {
   .body {
     flex: none;
-    height: min(var(--size-stage-max), calc(100dvh - var(--size-chrome)));
+    height: min(var(--size-stage-max), calc(100dvh - var(--size-chrome) - var(--size-header)));
   }
 }

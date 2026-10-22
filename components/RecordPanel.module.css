@@ -91,7 +91,7 @@
 }
 
 .nudgeBtn {
-  height: var(--size-control-s);
+  height: var(--size-control-m);
   min-width: var(--size-row);
   padding: 0 var(--space-2);
   font-size: var(--text-xs);

@@ -1,0 +1,239 @@
+.lane {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-1) var(--space-3);
+}
+
+.key {
+  flex: none;
+  display: flex;
+  gap: var(--space-1);
+}
+
+.select {
+  height: var(--size-control-m);
+  padding: 0 var(--space-2);
+  background: var(--color-paper-3);
+  color: var(--color-ink);
+  border: 1px solid var(--color-edge);
+  border-radius: var(--radius-s);
+  font: inherit;
+  font-size: var(--text-base);
+  cursor: pointer;
+}
+
+.select:hover {
+  background: var(--color-paper-4);
+}
+
+.slots {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.slot {
+  min-height: var(--size-touch);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-half);
+  padding: 0 var(--space-1);
+  border-bottom: var(--border-thick) solid var(--fn, var(--color-ink-3));
+  touch-action: manipulation;
+}
+
+.slot[data-fn="tonic"] { --fn: var(--track-3); }
+.slot[data-fn="predominant"] { --fn: var(--track-1); }
+.slot[data-fn="dominant"] { --fn: var(--track-2); }
+.slot[data-fn="other"] { --fn: var(--color-ink-3); }
+
+.slot[data-open="true"] {
+  background: var(--color-paper-4);
+}
+
+.slot[data-playing="true"] {
+  background: color-mix(in oklch, var(--fn) 22%, var(--color-paper-3));
+  border-color: var(--color-edge);
+  border-bottom-color: var(--fn);
+}
+
+.symbol {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.roman {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-2xs);
+  line-height: 1.1;
+  color: var(--color-ink-3);
+}
+
+.popover {
+  position: absolute;
+  top: 100%;
+  left: calc(var(--i) / var(--n) * 100%);
+  z-index: 10;
+  width: min(var(--size-stage-max), calc(100% - 2 * var(--space-3)));
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--color-paper-2);
+  border: 1px solid var(--color-edge);
+  border-radius: var(--radius-m);
+  box-shadow: 0 var(--space-2) var(--space-6) var(--color-paper);
+}
+
+.popover[data-align="end"] {
+  left: auto;
+  right: calc((1 - (var(--i) + 1) / var(--n)) * 100%);
+}
+
+.popover:focus-visible {
+  outline-offset: calc(-1 * var(--border-thick));
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.row {
+  width: 100%;
+  min-height: var(--size-touch);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-half);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  white-space: normal;
+}
+
+.rowHead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.rowSymbol {
+  font-size: var(--text-xl);
+  font-weight: 600;
+}
+
+.rowRoman {
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+}
+
+.chip {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-paper-4);
+  color: var(--color-ink-2);
+  font-size: var(--text-2xs);
+  line-height: 1.6;
+}
+
+.reason {
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+}
+
+.form {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: var(--size-touch);
+  padding: 0 var(--space-3);
+  background: var(--color-paper);
+  border: 1px solid var(--color-edge);
+  border-radius: var(--radius-s);
+  font-size: var(--text-md);
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--color-rec);
+}
+
+.apply {
+  height: var(--size-touch);
+  padding: 0 var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.apply:hover:not(:disabled) {
+  background: var(--color-accent);
+  filter: brightness(1.1);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-rec);
+}
+
+/* Narrow screens: key picker on its own row, slots wrap to a second row only if they must. */
+@media (max-width: 719.98px) {
+  .lane {
+    padding-block: var(--space-2);
+  }
+
+  .key {
+    flex: 1 1 100%;
+  }
+
+  .key .select {
+    flex: 1;
+  }
+
+  .slots {
+    flex: 1 1 100%;
+    grid-template-columns: repeat(auto-fit, minmax(var(--size-label), 1fr));
+  }
+}
+
+/* Phones: the suggestion popover becomes a bottom sheet. */
+@media (max-width: 519.98px) {
+  .popover,
+  .popover[data-align="end"] {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 70vh;
+    border-radius: var(--radius-l) var(--radius-l) 0 0;
+    padding-bottom: var(--space-4);
+  }
+}

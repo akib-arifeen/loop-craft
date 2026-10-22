@@ -2,6 +2,9 @@
 
 import { BAR_OPTIONS, DRUM_VOICES, MAX_BPM, MAX_TRACKS, MIN_BPM, STEPS_PER_BAR } from "./types.ts"
 import type { Bars, DrumPattern, ShareData, TrackFx, TrackKind } from "./types.ts"
+import { MODES } from "../harmony/types.ts"
+import type { Harmony, Key, Mode } from "../harmony/types.ts"
+import { formatNoteName, parseNoteName, parseRoman, romanNumeral } from "../harmony/theory.ts"
 
 type ShareTrack = ShareData["tracks"][number]
 
@@ -40,11 +43,29 @@ const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object
 const isNum = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x)
 
 
+function decodeHarmony(h: unknown): Harmony | null {
+  if (!isObj(h) || typeof h.k !== "string" || typeof h.m !== "string" || !Array.isArray(h.c)) return null
+  const tonic = parseNoteName(h.k)
+  if (!tonic || !(MODES as readonly string[]).includes(h.m)) return null
+  if (h.c.length < 1 || h.c.length > 8) return null
+  const key: Key = { tonic, mode: h.m as Mode }
+  const chords: Harmony["chords"] = []
+  for (let i = 0; i < h.c.length; i++) {
+    const r = h.c[i]
+    if (typeof r !== "string") return null
+    const chord = parseRoman(r, key)
+    if (!chord) return null
+    chords.push({ start: i * 4, length: 4, chord })
+  }
+  return { key, beatsPerBar: 4, chords }
+}
+
 /**
  * Encodes as base64url (RFC 4648 §5, no padding) of compact JSON. Drum lanes are written as
  * 16-character digit strings ("2000000100200000") to keep URLs short. Only tracks whose kind is
  * "drums" | "bass" | "keys" are written. Must round-trip: decodeShare(encodeShare(d)) deep-equals d
- * for any valid d with only synthesized tracks. Must work in both browsers and Node (no Buffer;
+ * for any valid d with only synthesized tracks (the harmony round-trips as the same key and the same chords,
+ * one 4-beat bar each; it is written as h: { k: ascii tonic, m: mode, c: [ascii Roman numerals] }). Must work in both browsers and Node (no Buffer;
  * use TextEncoder + btoa/atob, both available in Node >= 16).
  */
 export function encodeShare(data: ShareData): string {
@@ -65,7 +86,12 @@ export function encodeShare(data: ShareData): string {
       if (t.patternId !== undefined) o.pid = t.patternId
       return o
     })
-  return toBase64Url(JSON.stringify({ v: 1, bpm: data.bpm, bars: data.bars, t: tracks }))
+  const out: Record<string, unknown> = { v: 1, bpm: data.bpm, bars: data.bars, t: tracks }
+  if (data.harmony) {
+    const key = data.harmony.key
+    out.h = { k: formatNoteName(key.tonic, true), m: key.mode, c: data.harmony.chords.map((s) => romanNumeral(key, s.chord, true)) }
+  }
+  return toBase64Url(JSON.stringify(out))
 }
 
 /**
@@ -73,7 +99,9 @@ export function encodeShare(data: ShareData): string {
  * kind, a drum lane that is not 16 digits 0-2, a missing patternId on bass/keys, more than
  * MAX_TRACKS tracks, a code longer than 4096 characters (checked before decoding), a track id that
  * is empty, longer than 64 characters, not matching /^[A-Za-z0-9_-]+$/, or duplicated within the
- * code. Numbers are clamped into range (bpm MIN_BPM..MAX_BPM, bars snapped to the
+ * code, or a harmony that is present but invalid (tonic not parseable, mode not in MODES, not 1..8 numerals,
+ * a numeral that parseRoman rejects in the decoded key). A code without harmony decodes with `harmony` absent.
+ * Numbers are clamped into range (bpm MIN_BPM..MAX_BPM, bars snapped to the
  * nearest of BAR_OPTIONS, volume 0..1, pan -1..1, fx.filter -1..1, other fx 0..1); names are cut
  * to 24 characters. Never throws.
  */
@@ -130,7 +158,13 @@ export function decodeShare(code: string): ShareData | null {
       }
       tracks.push(track)
     }
-    return { v: 1, bpm: clamp(raw.bpm, MIN_BPM, MAX_BPM), bars: snapBars(raw.bars), tracks }
+    const out: ShareData = { v: 1, bpm: clamp(raw.bpm, MIN_BPM, MAX_BPM), bars: snapBars(raw.bars), tracks }
+    if (raw.h !== undefined) {
+      const harmony = decodeHarmony(raw.h)
+      if (!harmony) return null
+      out.harmony = harmony
+    }
+    return out
   } catch {
     return null
   }
