@@ -12,9 +12,9 @@
 
 .segBtn {
   flex: 1;
-  max-width: 120px;
-  height: 36px;
-  font-size: 13px;
+  max-width: var(--size-picker-btn);
+  height: var(--size-control-l);
+  font-size: var(--text-base);
   color: var(--color-ink-2);
 }
 
@@ -27,8 +27,8 @@
 .roll {
   width: 100%;
   flex: 1;
-  min-height: 100px;
-  max-height: 280px;
+  min-height: var(--size-list-min);
+  max-height: var(--size-panel-max);
   display: block;
   background: var(--color-paper);
   border-radius: var(--radius-m);
@@ -41,4 +41,12 @@
 
 .note {
   fill: var(--tc);
+}
+
+.noteScale {
+  fill: color-mix(in oklch, var(--tc) 55%, var(--color-ink));
+}
+
+.noteChromatic {
+  fill: var(--color-ink-3);
 }

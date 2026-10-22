@@ -32,7 +32,7 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
       onNotice("Link copied")
     } catch {
       location.hash = `s=${engine.shareCode()}`
-      onNotice("Couldn't copy — the link is in the address bar")
+      onNotice("Couldn't copy. The link is in the address bar.")
     }
   }
 
@@ -48,7 +48,7 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
       a.remove()
       setTimeout(() => URL.revokeObjectURL(href), 1000)
     } catch {
-      onNotice("Export failed — try again")
+      onNotice("Export failed. Try again.")
     }
   }
 
@@ -151,13 +151,8 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
         <Link />
       </button>
       <button type="button" className={`${styles.export} ${styles.o10}`} disabled={snap.exporting} onClick={exportWav}>
-        {snap.exporting ? (
-          "Rendering…"
-        ) : (
-          <>
-            WAV <Download size={16} />
-          </>
-        )}
+        <span className={styles.wavText}>{snap.exporting ? "Rendering…" : "WAV"}</span>
+        <Download size={16} />
       </button>
       <span className={styles.break} />
     </header>

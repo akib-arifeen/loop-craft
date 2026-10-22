@@ -18,7 +18,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 32px;
+  min-height: var(--size-control-m);
 }
 
 .grow {
@@ -29,9 +29,9 @@
 .nameInput {
   min-width: 0;
   max-width: 14ch;
-  height: 32px;
+  height: var(--size-control-m);
   padding: 0 var(--space-2);
-  font-size: 16px;
+  font-size: var(--text-xl);
   font-weight: 600;
   letter-spacing: -0.01em;
   overflow: hidden;
@@ -52,11 +52,11 @@
 }
 
 .chip {
-  padding: 2px var(--space-2);
+  padding: var(--space-half) var(--space-2);
   border-radius: var(--radius-pill);
   border: 1px solid var(--tc);
   color: var(--tc);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 @media (max-width: 419.98px) {
@@ -66,15 +66,15 @@
 }
 
 .clear {
-  height: 32px;
+  height: var(--size-control-m);
   padding: 0 var(--space-3);
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--color-ink-2);
 }
 
 .remove {
-  width: 32px;
-  height: 32px;
+  width: var(--size-control-m);
+  height: var(--size-control-m);
   display: grid;
   place-items: center;
   color: var(--color-ink-2);
@@ -83,7 +83,7 @@
 .remove[data-confirm="true"] {
   width: auto;
   padding: 0 var(--space-3);
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--color-ink);
 }
 

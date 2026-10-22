@@ -21,7 +21,12 @@ import type {
   TransportClock,
 } from "./types.ts"
 import { BAR_OPTIONS, DRUM_VOICES, MAX_BPM, MAX_TRACKS, MIN_BPM, PAD_COUNT } from "./types.ts"
-import { audioTrack, cloneDrumPattern, DEMO_BARS, DEMO_BPM, demoTracks, emptyDrumPattern, findPattern, PADS } from "./patterns.ts"
+import { audioTrack, cloneDrumPattern, DEMO_BARS, DEMO_BPM, demoTracks, emptyDrumPattern, PADS } from "./patterns.ts"
+import { MODES } from "../harmony/types.ts"
+import type { Harmony, Mode } from "../harmony/types.ts"
+import { chordAt, parseNoteName, parseRoman } from "../harmony/theory.ts"
+import { pitchToMidi } from "../harmony/realize.ts"
+import { demoHarmony, findPart } from "../harmony/presets.ts"
 import { computePeaks, isAudible, mixInto } from "./dsp.ts"
 import { captureWindow, loopFrameCount, loopOffset, loopPhase, nextBoundary, secondsToFrames, stepFrame } from "./timing.ts"
 import { createNoiseBuffer, playDrum, playKeys } from "./synth.ts"
@@ -56,16 +61,44 @@ const DISPOSE_DELAY_MS = 60
 const PEAK_BINS = 96
 const MESSAGE_MS = 4000
 const METRO = "__metronome"
+/** Reserved undo-entry trackId for harmony changes: never matches a real track, so removeTrack/dropHistory leave it alone. */
+const HARMONY = "__harmony"
+const MAX_CHORDS = 8
+const cloneHarmony = (h: Harmony): Harmony => structuredClone(h)
 
 interface TrackContent {
   buffer?: AudioBuffer | null
   drumPattern?: DrumPattern
   patternId?: string
+  mix?: MixState
+  harmony?: Harmony
+}
+interface MixState {
+  name: string
+  volume: number
+  pan: number
+  muted: boolean
+  soloed: boolean
+  fx: TrackFx
 }
 interface UndoEntry {
   trackId: string
   before: TrackContent
   after: TrackContent
+  /** Mix entries only: sorted changed keys ("volume", "fx.drive"…), used to coalesce a knob drag into one step. */
+  fields?: string[]
+  /** Mix entries only: performance.now() when last updated. */
+  at?: number
+}
+const MIX_COALESCE_MS = 600
+const mixOf = (t: TrackState): MixState => ({
+  name: t.name, volume: t.volume, pan: t.pan, muted: t.muted, soloed: t.soloed, fx: { ...t.fx },
+})
+const mixFields = (a: MixState, b: MixState): string[] => {
+  const out: string[] = []
+  for (const k of ["name", "volume", "pan", "muted", "soloed"] as const) if (a[k] !== b[k]) out.push(k)
+  for (const k of Object.keys(b.fx) as (keyof TrackFx)[]) if (a.fx[k] !== b.fx[k]) out.push(`fx.${k}`)
+  return out.sort()
 }
 interface Voice {
   src: AudioBufferSourceNode
@@ -86,6 +119,7 @@ export class LoopEngine implements LoopEngineApi {
   // state
   private tracks: TrackState[] = demoTracks()
   private selectedTrackId: string | null = "drums"
+  private harmony: Harmony = demoHarmony()
   private bpm = DEMO_BPM
   private bars: Bars = DEMO_BARS
   private status: EngineSnapshot["status"] = "idle"
@@ -178,6 +212,7 @@ export class LoopEngine implements LoopEngineApi {
       canRedo: this.redoStack.length > 0,
       exporting: this.exporting,
       message: this.message,
+      harmony: this.harmony,
     }
   }
 
@@ -343,7 +378,7 @@ export class LoopEngine implements LoopEngineApi {
         } else if (this.status === "ready") this.status = "suspended"
         if (ctx.state !== "running" && (this.pending || this.record_.kind !== "idle")) {
           this.doCancelRecord()
-          this.setMessage("Audio was interrupted — recording cancelled")
+          this.setMessage("Audio was interrupted, so the recording was cancelled.")
         }
         this.emit()
       }
@@ -403,7 +438,7 @@ export class LoopEngine implements LoopEngineApi {
       const sr = this.sr
       const L = this.L
       const bars = this.loopBars
-      const buffer = await synthSource(t).render({ sampleRate: sr, loopFrames: L, bars })
+      const buffer = await synthSource(t, this.harmony).render({ sampleRate: sr, loopFrames: L, bars })
       if (L !== this.L || !this.track(id)) return // retimed or removed meanwhile; the retime job re-renders
       this.applyBuffer(id, buffer)
     })
@@ -432,7 +467,7 @@ export class LoopEngine implements LoopEngineApi {
         for (const id of ids) {
           const t = this.track(id)
           if (!t) continue
-          const buf = await synthSource(t).render({ sampleRate: sr, loopFrames: newL, bars: newBars })
+          const buf = await synthSource(t, this.harmony).render({ sampleRate: sr, loopFrames: newL, bars: newBars })
           if (buf) rendered.set(id, buf)
         }
         const click = await renderClickTrack(sr, newL, newBars)
@@ -571,6 +606,9 @@ export class LoopEngine implements LoopEngineApi {
       case "undo": this.doUndo(); break
       case "redo": this.doRedo(); break
       case "loadShare": result = this.doLoadShare(command.code); break
+      case "setKey": this.doSetKey(command.tonic, command.mode); break
+      case "setChord": result = this.doSetChord(command.index, command.roman); break
+      case "setProgression": result = this.doSetProgression(command.romans); break
     }
     // No-ops emit nothing; record / loadShare report their outcome asynchronously or via the return value.
     if (this.snap === before && command.type !== "record" && command.type !== "loadShare") return result
@@ -617,6 +655,9 @@ export class LoopEngine implements LoopEngineApi {
   undo(): void { this.run({ type: "undo" }, "user") }
   redo(): void { this.run({ type: "redo" }, "user") }
   loadShare(code: string): boolean { return this.run({ type: "loadShare", code }, "user") as boolean }
+  setKey(tonic: string, mode: Mode): void { this.run({ type: "setKey", tonic, mode }, "user") }
+  setChord(index: number, roman: string): boolean { return this.run({ type: "setChord", index, roman }, "user") === true }
+  setProgression(romans: string): boolean { return this.run({ type: "setProgression", romans }, "user") === true }
 
   getDocument(): SessionDocument {
     return {
@@ -641,6 +682,7 @@ export class LoopEngine implements LoopEngineApi {
         if (t.patternId !== undefined) o.patternId = t.patternId
         return o
       }),
+      harmony: cloneHarmony(this.harmony),
     }
   }
 
@@ -807,7 +849,9 @@ export class LoopEngine implements LoopEngineApi {
       if (name) p.name = name
     }
     if (Object.keys(p).length === 0) return
+    const before = mixOf(this.track(id)!)
     this.patchTrack(id, p)
+    this.pushMixUndo(id, before, mixOf(this.track(id)!))
     this.updateAllChannels()
     this.emit()
   }
@@ -822,10 +866,27 @@ export class LoopEngine implements LoopEngineApi {
     if (isNum(patch.delay)) ((fx.delay = clamp(patch.delay, 0, 1)), (any = true))
     if (isNum(patch.reverb)) ((fx.reverb = clamp(patch.reverb, 0, 1)), (any = true))
     if (!any) return
+    const before = mixOf(t)
     this.patchTrack(id, { fx })
+    this.pushMixUndo(id, before, mixOf(this.track(id)!))
     const nt = this.track(id)!
     this.channels.get(id)?.update(this.channelParams(nt))
     this.emit()
+  }
+  /** One undo step per mix gesture: same track + same changed fields within MIX_COALESCE_MS extend the newest entry. */
+  private pushMixUndo(trackId: string, before: MixState, after: MixState): void {
+    const fields = mixFields(before, after)
+    if (fields.length === 0) return
+    const now = performance.now()
+    const last = this.undoStack[this.undoStack.length - 1]
+    if (last && last.trackId === trackId && last.before.mix && last.at !== undefined && now - last.at < MIX_COALESCE_MS &&
+      last.fields?.join() === fields.join()) {
+      last.after = { mix: after }
+      last.at = now
+      this.redoStack = []
+      return
+    }
+    this.pushUndo({ trackId, before: { mix: before }, after: { mix: after }, fields, at: now })
   }
   private pushUndo(entry: UndoEntry): void {
     this.undoStack.push(entry)
@@ -867,7 +928,7 @@ export class LoopEngine implements LoopEngineApi {
     if (!isStr(id) || !isStr(patternId)) return
     const t = this.track(id)
     if (!t || (t.kind !== "bass" && t.kind !== "keys")) return
-    if (!findPattern(patternId) || t.patternId === patternId) return
+    if (!findPart(patternId) || t.patternId === patternId) return
     this.pushUndo({ trackId: id, before: { patternId: t.patternId }, after: { patternId } })
     this.patchTrack(id, { patternId })
     this.enqueueRender(id)
@@ -890,6 +951,48 @@ export class LoopEngine implements LoopEngineApi {
     this.emit()
   }
 
+  // ── harmony ──
+  private renderHarmonyTracks(): void {
+    for (const t of this.tracks) if (t.kind === "bass" || t.kind === "keys") this.enqueueRender(t.id)
+  }
+  /** Installs `next` as one undo step and re-renders bass/keys. A change that leaves the harmony identical is not a step. */
+  private commitHarmony(next: Harmony): void {
+    if (JSON.stringify(next) === JSON.stringify(this.harmony)) return
+    this.pushUndo({ trackId: HARMONY, before: { harmony: cloneHarmony(this.harmony) }, after: { harmony: cloneHarmony(next) } })
+    this.harmony = next
+    this.renderHarmonyTracks()
+    this.emit()
+  }
+  private doSetKey(tonic: string, mode: Mode): void {
+    if (!isStr(tonic) || !isStr(mode)) return
+    const name = parseNoteName(tonic)
+    if (!name || !(MODES as readonly string[]).includes(mode)) return
+    this.commitHarmony({ ...cloneHarmony(this.harmony), key: { tonic: name, mode } })
+  }
+  private doSetChord(index: number, roman: string): boolean {
+    if (!isNum(index) || !Number.isInteger(index) || index < 0 || index >= this.harmony.chords.length || !isStr(roman)) return false
+    const chord = parseRoman(roman.trim(), this.harmony.key)
+    if (!chord) return false
+    const next = cloneHarmony(this.harmony)
+    next.chords[index] = { ...next.chords[index], chord }
+    this.commitHarmony(next)
+    return true
+  }
+  private doSetProgression(romans: string): boolean {
+    if (!isStr(romans)) return false
+    const parts = romans.split(/\s+/).filter(Boolean)
+    if (parts.length < 1 || parts.length > MAX_CHORDS) return false
+    const key = this.harmony.key
+    const chords: Harmony["chords"] = []
+    for (let i = 0; i < parts.length; i++) {
+      const chord = parseRoman(parts[i], key)
+      if (!chord) return false
+      chords.push({ start: i * 4, length: 4, chord })
+    }
+    this.commitHarmony({ ...cloneHarmony(this.harmony), chords })
+    return true
+  }
+
   // ── undo / redo ──
   /** Returns false when the content was skipped (it can't be applied here); callers drop such entries. */
   private applyContent(id: string, c: TrackContent): boolean {
@@ -903,11 +1006,19 @@ export class LoopEngine implements LoopEngineApi {
       this.patchTrack(id, { patternId: c.patternId })
       this.enqueueRender(id)
     }
+    if (c.harmony) {
+      this.harmony = cloneHarmony(c.harmony)
+      this.renderHarmonyTracks()
+    }
+    if (c.mix) {
+      this.patchTrack(id, { ...c.mix, fx: { ...c.mix.fx } })
+      this.updateAllChannels() // solo/mute change what the other tracks do
+    }
     return true
   }
   private doUndo(): void {
     let e = this.undoStack.pop()
-    while (e && !this.track(e.trackId)) e = this.undoStack.pop()
+    while (e && e.trackId !== HARMONY && !this.track(e.trackId)) e = this.undoStack.pop()
     if (!e) {
       this.emit()
       return
@@ -917,7 +1028,7 @@ export class LoopEngine implements LoopEngineApi {
   }
   private doRedo(): void {
     let e = this.redoStack.pop()
-    while (e && !this.track(e.trackId)) e = this.redoStack.pop()
+    while (e && e.trackId !== HARMONY && !this.track(e.trackId)) e = this.redoStack.pop()
     if (!e) {
       this.emit()
       return
@@ -984,7 +1095,7 @@ export class LoopEngine implements LoopEngineApi {
   private async openMic(): Promise<boolean> {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || !this.ctx) {
       this.micStatus = "unsupported"
-      this.setMessage("This browser can't record from a microphone — use the pads")
+      this.setMessage("This browser can't record from a microphone. Use the pads.")
       return false
     }
     this.micStatus = "prompting"
@@ -1010,7 +1121,7 @@ export class LoopEngine implements LoopEngineApi {
       this.micStatus = name === "NotAllowedError" || name === "SecurityError" ? "denied" : name === "NotFoundError" ? "unsupported" : "denied"
       this.recordSource = "pads"
       this.connectInput()
-      this.setMessage("Microphone unavailable — recording from the pads instead (keys A S D F · H J K L)")
+      this.setMessage("Microphone unavailable. Recording from the pads instead (keys A S D F · H J K L).")
       return false
     }
   }
@@ -1028,7 +1139,7 @@ export class LoopEngine implements LoopEngineApi {
       return
     }
     if (this.retiming) {
-      this.setMessage("Changing tempo — try again in a moment")
+      this.setMessage("Changing tempo. Try again in a moment.")
       return
     }
     await this.armRecording(trackId)
@@ -1053,7 +1164,7 @@ export class LoopEngine implements LoopEngineApi {
       return
     }
     if (this.retiming) {
-      this.setMessage("Changing tempo — try again in a moment")
+      this.setMessage("Changing tempo. Try again in a moment.")
       return
     }
     const ctx = this.ctx
@@ -1115,7 +1226,7 @@ export class LoopEngine implements LoopEngineApi {
     const t = this.track(trackId)
     this.record_ = { kind: "idle" }
     if (data.late) {
-      this.setMessage("The recording started late — nothing was saved, try again")
+      this.setMessage("The recording started late, so nothing was saved. Try again.")
       return
     }
     if (!t) {
@@ -1149,10 +1260,16 @@ export class LoopEngine implements LoopEngineApi {
   pad(index: number): void {
     if (!this.runnable() || !this.padsBus || !this.noise || !Number.isInteger(index) || index < 0 || index >= PAD_COUNT) return
     const ctx = this.ctx!
-    const p = PADS[index] as { drum?: DrumVoice; midi?: number }
+    const p = PADS[index] as { drum?: DrumVoice; tone?: number }
     const t = ctx.currentTime
     if (p.drum) playDrum(ctx, this.padsBus, p.drum, t, 1, this.noise)
-    else if (p.midi !== undefined) playKeys(ctx, this.padsBus, p.midi, t, 0.3, 0.9)
+    else if (p.tone !== undefined) {
+      // A chord tone of the chord heard now (slot 0 while stopped), so the pads are always consonant.
+      const pos = this.getClock().position
+      const slot = chordAt(this.harmony, pos ? pos.step / 4 : 0)
+      const midi = pitchToMidi({ kind: "chord", tone: p.tone, octave: 0 }, this.harmony.key, slot.chord, { low: 60, high: 84 })
+      playKeys(ctx, this.padsBus, midi, t, 0.3, 0.9)
+    }
   }
 
   async exportWav(loops = 2): Promise<Blob> {
@@ -1192,7 +1309,7 @@ export class LoopEngine implements LoopEngineApi {
       if (t.patternId !== undefined) o.patternId = t.patternId
       return o
     })
-    return encodeShare({ v: 1, bpm: this.bpm, bars: this.bars, tracks })
+    return encodeShare({ v: 1, bpm: this.bpm, bars: this.bars, tracks, harmony: cloneHarmony(this.harmony) })
   }
 
   private doLoadShare(code: string): boolean {
@@ -1242,6 +1359,8 @@ export class LoopEngine implements LoopEngineApi {
         this.dropHistory(old.id)
       }
     }
+    this.dropHistory(HARMONY)
+    this.harmony = data.harmony ? cloneHarmony(data.harmony) : demoHarmony()
     this.tracks = [...shared, ...audioTracks]
     for (const t of shared) this.makeChannel(t)
     this.bpm = data.bpm

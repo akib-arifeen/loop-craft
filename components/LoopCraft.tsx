@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import ChordLane from "./ChordLane"
 import DetailPanel from "./DetailPanel"
 import StartGate from "./StartGate"
 import StatusLine, { type Notice } from "./StatusLine"
@@ -105,6 +106,7 @@ export default function LoopCraft() {
           </div>
         )}
         <Transport onNotice={notify} />
+        <ChordLane />
         <div className={styles.body}>
           <TrackList />
           <DetailPanel />

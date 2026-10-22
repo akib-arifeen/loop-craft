@@ -4,14 +4,14 @@
   align-items: center;
   gap: var(--space-2) var(--space-3);
   padding: var(--space-2) var(--space-3);
-  min-height: 52px;
+  min-height: var(--size-header);
 }
 
 .wordmark {
   margin: 0;
   font-weight: 600;
   letter-spacing: -0.02em;
-  font-size: 16px;
+  font-size: var(--text-xl);
   margin-right: var(--space-1);
 }
 
@@ -35,8 +35,8 @@
 }
 
 .round {
-  width: 40px;
-  height: 40px;
+  width: var(--size-control-xl);
+  height: var(--size-control-xl);
   border-radius: var(--radius-pill);
   display: grid;
   place-items: center;
@@ -61,10 +61,10 @@
 .rec[data-on="true"]::after {
   content: "";
   position: absolute;
-  inset: -4px;
+  inset: calc(var(--space-1) * -1);
   border-radius: var(--radius-pill);
-  border: 2px solid var(--color-rec);
-  animation: pulse 1.2s var(--ease-out) infinite;
+  border: var(--border-thick) solid var(--color-rec);
+  animation: pulse var(--dur-pulse) var(--ease-out) infinite;
   pointer-events: none;
 }
 
@@ -80,9 +80,9 @@
 }
 
 .step {
-  width: 32px;
-  height: 32px;
-  font-size: 18px;
+  width: var(--size-control-m);
+  height: var(--size-control-m);
+  font-size: var(--text-2xl);
   line-height: 1;
 }
 
@@ -90,7 +90,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--space-1);
-  min-width: 64px;
+  min-width: var(--size-label);
   justify-content: center;
   color: var(--color-ink-2);
 }
@@ -100,13 +100,13 @@
 }
 
 .bpmNum {
-  font-size: 20px;
+  font-size: var(--text-3xl);
   color: var(--color-ink);
 }
 
 .label,
 .segLabel {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-ink-3);
 }
 
@@ -117,9 +117,9 @@
 }
 
 .segBtn {
-  width: 32px;
-  height: 32px;
-  font-size: 13px;
+  width: var(--size-control-m);
+  height: var(--size-control-m);
+  font-size: var(--text-base);
 }
 
 .segBtn[aria-checked="true"] {
@@ -138,8 +138,8 @@
 }
 
 .icon {
-  width: 32px;
-  height: 32px;
+  width: var(--size-control-m);
+  height: var(--size-control-m);
   display: grid;
   place-items: center;
   color: var(--color-ink-2);
@@ -152,8 +152,8 @@
 }
 
 .meterTrack {
-  width: 6px;
-  height: 28px;
+  width: var(--size-bar);
+  height: var(--size-control-s);
   background: var(--color-paper-3);
   border-radius: var(--radius-pill);
   overflow: hidden;
@@ -170,16 +170,19 @@
 }
 
 .export {
-  height: 32px;
+  height: var(--size-control-m);
   padding: 0 var(--space-3);
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--color-ink-2);
 }
 
+
+/* Narrow: exactly two rows, no wrapping inside a row.
+   Row 1: wordmark play rec bpm ~ share WAV   |   Row 2: bars metronome shortcuts undo redo ~ meter */
 @media (max-width: 719.98px) {
   .header {
     gap: var(--space-2) var(--space-2);
@@ -188,20 +191,78 @@
   .o1 { order: 1; }
   .o2 { order: 2; }
   .o3 { order: 3; }
-  .o7 { order: 4; }
-  .o9 { order: 5; }
-  .o10 { order: 6; }
+  .o4 { order: 4; gap: var(--space-half); }
+  .o7 { order: 5; }
+  .o9 { order: 6; }
+  .o10 { order: 7; }
   .break {
     display: block;
-    order: 7;
+    order: 8;
     flex-basis: 100%;
     height: 0;
-    margin: -4px 0;
+    margin: calc(var(--space-1) * -1) 0;
   }
-  .o4 { order: 8; gap: 2px; }
-  .o5 { order: 9; gap: 2px; }
-  .o6 { order: 10; gap: 2px; }
-  .o8 { order: 11; margin-left: auto; }
-  .bpmValue { min-width: 48px; }
+  .o5 { order: 9; gap: var(--space-half); }
+  .o6 { order: 10; gap: var(--space-half); }
+  .o8 { order: 11; margin-left: auto; height: var(--size-control-m); }
+  .bpmValue { min-width: 0; }
   .segLabel { display: none; }
+}
+
+@media (max-width: 399.98px) {
+  .header {
+    gap: var(--space-2) var(--space-1);
+    padding: var(--space-2) var(--space-1);
+  }
+  .round { width: var(--size-control-l); height: var(--size-control-l); }
+  .step, .segBtn, .icon { width: var(--size-control-m); height: var(--size-control-m); }
+  .export { padding: 0 var(--space-2); }
+  .tools { gap: var(--space-half); }
+}
+
+/* Narrow phones: the WAV caption and the BPM caption give way so row 1 never wraps. The caption stays
+   in the DOM (visually hidden) so the export button keeps its accessible name. */
+@media (max-width: 499.98px) {
+  .wavText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .label { display: none; }
+}
+
+@media (max-width: 359.98px) {
+  .wordmark {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* Embed and small laptops (e.g. the portfolio's 800x520 frame): keep the header on one row. */
+@media (min-width: 720px) and (max-width: 959.98px) {
+  .header { column-gap: var(--space-2); }
+  .segLabel { display: none; }
+  .label { display: none; }
+}
+
+/* 720–759px: the one-row header needs a little more room; the h1 stays for screen readers. */
+@media (min-width: 720px) and (max-width: 759.98px) {
+  .wordmark {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }

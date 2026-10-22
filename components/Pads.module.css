@@ -1,20 +1,20 @@
 .grid {
   flex: 1;
   min-height: 0;
-  grid-template-rows: repeat(2, minmax(52px, 96px));
+  grid-template-rows: repeat(2, minmax(var(--size-row), var(--size-pad-max)));
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-2);
 }
 
 .pad {
-  min-height: 52px;
+  min-height: var(--size-row);
   border-radius: var(--radius-m);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: var(--space-half);
   touch-action: manipulation;
   user-select: none;
   background: color-mix(in oklch, var(--pt) 10%, var(--color-paper-3));
@@ -28,18 +28,18 @@
 }
 
 .padLabel {
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
 }
 
 .padKey {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-ink-3);
 }
 
 .hint {
   margin: var(--space-2) 0 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--color-ink-3);
 }
 

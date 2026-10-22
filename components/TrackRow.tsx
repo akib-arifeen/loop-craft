@@ -16,7 +16,7 @@ function kindLabel(t: TrackState): string {
     case "keys":
       return "Synth keys"
     default:
-      return t.hasAudio ? "Recorded loop" : "Empty — press R"
+      return t.hasAudio ? "Recorded loop" : "Empty · press R"
   }
 }
 

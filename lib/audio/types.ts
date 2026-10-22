@@ -1,6 +1,8 @@
 // Shared types for the LoopCraft audio engine. This file is the contract between the
 // engine modules and the UI: workers implement against it and must not change it.
 
+import type { Harmony, Mode } from "../harmony/types.ts"
+
 /** Steps per bar in every pattern grid (16th notes, 4/4). */
 export const STEPS_PER_BAR = 16
 export const BEATS_PER_BAR = 4
@@ -122,8 +124,10 @@ export interface EngineSnapshot {
   canUndo: boolean
   canRedo: boolean
   exporting: boolean
-  /** Short status line for the UI (e.g. "Mic blocked — record from the pads instead"). */
+  /** Short status line for the UI (e.g. "Mic blocked. Record from the pads instead."). */
   message: string | null
+  /** Key, mode and chord lane. Bass and keys parts are realised against it. */
+  harmony: Harmony
 }
 
 /**
@@ -137,6 +141,8 @@ export interface ShareData {
   tracks: Array<
     Pick<TrackState, "id" | "kind" | "name" | "volume" | "pan" | "muted" | "soloed" | "fx" | "drumPattern" | "patternId">
   >
+  /** Key, mode and chord lane. Absent in codes made before harmony existed: the demo harmony is used. */
+  harmony?: Harmony
 }
 
 // ── v2 seams: pluggable sources, a command/event API, a readable clock ──
@@ -186,6 +192,9 @@ export type EngineCommand =
   | { type: "undo" }
   | { type: "redo" }
   | { type: "loadShare"; code: string }
+  | { type: "setKey"; tonic: string; mode: Mode }
+  | { type: "setChord"; index: number; roman: string }
+  | { type: "setProgression"; romans: string }
 
 /** A command that was applied, in order. `origin` is "user" for UI calls, or whatever the dispatcher passed. */
 export interface CommandEvent {
@@ -204,6 +213,7 @@ export interface SessionDocument {
   tracks: Array<
     Pick<TrackState, "id" | "kind" | "name" | "volume" | "pan" | "muted" | "soloed" | "fx" | "drumPattern" | "patternId" | "hasAudio">
   >
+  harmony: Harmony
 }
 
 /** Transport, readable by an external scheduler. All times are AudioContext seconds. */
@@ -287,6 +297,24 @@ export interface LoopEngineApi {
    * unchanged, with a message) when the code is invalid or tempoLocked would block the change.
    */
   loadShare(code: string): boolean
+
+  /**
+   * Sets the key (tonic like "A", "Bb", "F#"; any mode). Chords stay Roman numerals, so the progression
+   * moves with the key and diatonic chords take the new mode's qualities; bass and keys re-render.
+   * Invalid tonic → no-op. Undoable (one step).
+   */
+  setKey(tonic: string, mode: Mode): void
+  /**
+   * Replaces chord slot `index` (0-based bar) with a Roman numeral parsed in the current key ("ii7", "V7/V",
+   * "bVII", "IVmaj7", "viiø7"). Returns false (no change) when the numeral doesn't parse or index is out of
+   * range. Undoable.
+   */
+  setChord(index: number, roman: string): boolean
+  /**
+   * Replaces the whole chord lane: space-separated Roman numerals, one bar each (1..8 chords). Returns false
+   * (no change) if any numeral fails to parse. Undoable.
+   */
+  setProgression(romans: string): boolean
 
   /**
    * Applies a command (the same code path as the matching method above), emits a CommandEvent with

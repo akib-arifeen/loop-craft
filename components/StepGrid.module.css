@@ -7,7 +7,7 @@
 .lane {
   flex: 1;
   min-height: 0;
-  max-height: 100px;
+  max-height: var(--size-list-min);
   display: flex;
   align-items: stretch;
   gap: var(--space-2);
@@ -15,10 +15,10 @@
 
 .label {
   flex: none;
-  width: 64px;
-  min-height: 32px;
+  width: var(--size-label);
+  min-height: var(--size-control-m);
   align-self: center;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--color-ink-2);
   text-align: left;
   padding: 0 var(--space-2);
@@ -36,12 +36,12 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-1);
-  grid-auto-rows: minmax(26px, 52px);
+  grid-auto-rows: minmax(var(--size-step-min), var(--size-row));
 }
 
 .cell {
   height: 100%;
-  min-height: 26px;
+  min-height: var(--size-step-min);
   min-width: 0;
   padding: 0;
   background: var(--color-paper-3);
@@ -77,21 +77,21 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -5px;
-  height: 2px;
+  bottom: calc(var(--offset-5) * -1);
+  height: var(--size-hair);
   border-radius: var(--radius-pill);
   background: var(--color-accent);
 }
 
 @media (max-width: 559.98px) {
   .label {
-    width: 52px;
+    width: var(--size-row);
   }
   .cells {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     row-gap: var(--space-2);
   }
   .cell {
-    height: 32px;
+    height: var(--size-control-m);
   }
 }

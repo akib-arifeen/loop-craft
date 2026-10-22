@@ -2,14 +2,14 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-half);
   width: 100%;
-  max-width: 64px;
+  max-width: var(--size-label);
 }
 
 .knob {
-  width: 44px;
-  height: 44px;
+  width: var(--size-touch);
+  height: var(--size-touch);
   border-radius: var(--radius-pill);
   touch-action: none;
   cursor: ns-resize;
@@ -39,7 +39,7 @@
 
 .caption {
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-ink-3);
   max-width: 100%;
   white-space: nowrap;
@@ -50,4 +50,22 @@
 .wrap[data-active="true"] .caption {
   font-family: var(--font-mono);
   color: var(--color-ink);
+}
+
+@media (max-width: 399.98px) {
+  .knob {
+    width: 100%;
+    max-width: var(--size-touch);
+    min-width: var(--size-control-l);
+    height: auto;
+    aspect-ratio: 1;
+  }
+  .knob svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .caption {
+    font-size: var(--text-2xs);
+  }
 }
