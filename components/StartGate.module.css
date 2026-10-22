@@ -9,7 +9,7 @@
 
 .card {
   width: 100%;
-  max-width: 360px;
+  max-width: var(--size-gate-max);
   padding: var(--space-7) var(--space-6);
   background: var(--color-paper-2);
   border: 1px solid var(--color-edge);
@@ -23,7 +23,7 @@
 
 .wordmark {
   margin: 0;
-  font-size: 28px;
+  font-size: var(--text-4xl);
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -34,7 +34,7 @@
 }
 
 .primary {
-  min-height: 48px;
+  min-height: var(--size-cta);
   padding: 0 var(--space-6);
   display: inline-flex;
   align-items: center;
@@ -44,7 +44,7 @@
   border: 0;
   border-radius: var(--radius-pill);
   font-weight: 600;
-  font-size: 15px;
+  font-size: var(--text-lg);
 }
 
 .primary:hover:not(:disabled) {
@@ -55,7 +55,7 @@
 .hint {
   margin: 0;
   color: var(--color-ink-3);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .error {

@@ -122,7 +122,7 @@ export interface EngineSnapshot {
   canUndo: boolean
   canRedo: boolean
   exporting: boolean
-  /** Short status line for the UI (e.g. "Mic blocked — record from the pads instead"). */
+  /** Short status line for the UI (e.g. "Mic blocked. Record from the pads instead."). */
   message: string | null
 }
 

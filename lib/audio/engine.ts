@@ -61,11 +61,34 @@ interface TrackContent {
   buffer?: AudioBuffer | null
   drumPattern?: DrumPattern
   patternId?: string
+  mix?: MixState
+}
+interface MixState {
+  name: string
+  volume: number
+  pan: number
+  muted: boolean
+  soloed: boolean
+  fx: TrackFx
 }
 interface UndoEntry {
   trackId: string
   before: TrackContent
   after: TrackContent
+  /** Mix entries only: sorted changed keys ("volume", "fx.drive"…), used to coalesce a knob drag into one step. */
+  fields?: string[]
+  /** Mix entries only: performance.now() when last updated. */
+  at?: number
+}
+const MIX_COALESCE_MS = 600
+const mixOf = (t: TrackState): MixState => ({
+  name: t.name, volume: t.volume, pan: t.pan, muted: t.muted, soloed: t.soloed, fx: { ...t.fx },
+})
+const mixFields = (a: MixState, b: MixState): string[] => {
+  const out: string[] = []
+  for (const k of ["name", "volume", "pan", "muted", "soloed"] as const) if (a[k] !== b[k]) out.push(k)
+  for (const k of Object.keys(b.fx) as (keyof TrackFx)[]) if (a.fx[k] !== b.fx[k]) out.push(`fx.${k}`)
+  return out.sort()
 }
 interface Voice {
   src: AudioBufferSourceNode
@@ -343,7 +366,7 @@ export class LoopEngine implements LoopEngineApi {
         } else if (this.status === "ready") this.status = "suspended"
         if (ctx.state !== "running" && (this.pending || this.record_.kind !== "idle")) {
           this.doCancelRecord()
-          this.setMessage("Audio was interrupted — recording cancelled")
+          this.setMessage("Audio was interrupted, so the recording was cancelled.")
         }
         this.emit()
       }
@@ -807,7 +830,9 @@ export class LoopEngine implements LoopEngineApi {
       if (name) p.name = name
     }
     if (Object.keys(p).length === 0) return
+    const before = mixOf(this.track(id)!)
     this.patchTrack(id, p)
+    this.pushMixUndo(id, before, mixOf(this.track(id)!))
     this.updateAllChannels()
     this.emit()
   }
@@ -822,10 +847,27 @@ export class LoopEngine implements LoopEngineApi {
     if (isNum(patch.delay)) ((fx.delay = clamp(patch.delay, 0, 1)), (any = true))
     if (isNum(patch.reverb)) ((fx.reverb = clamp(patch.reverb, 0, 1)), (any = true))
     if (!any) return
+    const before = mixOf(t)
     this.patchTrack(id, { fx })
+    this.pushMixUndo(id, before, mixOf(this.track(id)!))
     const nt = this.track(id)!
     this.channels.get(id)?.update(this.channelParams(nt))
     this.emit()
+  }
+  /** One undo step per mix gesture: same track + same changed fields within MIX_COALESCE_MS extend the newest entry. */
+  private pushMixUndo(trackId: string, before: MixState, after: MixState): void {
+    const fields = mixFields(before, after)
+    if (fields.length === 0) return
+    const now = performance.now()
+    const last = this.undoStack[this.undoStack.length - 1]
+    if (last && last.trackId === trackId && last.before.mix && last.at !== undefined && now - last.at < MIX_COALESCE_MS &&
+      last.fields?.join() === fields.join()) {
+      last.after = { mix: after }
+      last.at = now
+      this.redoStack = []
+      return
+    }
+    this.pushUndo({ trackId, before: { mix: before }, after: { mix: after }, fields, at: now })
   }
   private pushUndo(entry: UndoEntry): void {
     this.undoStack.push(entry)
@@ -902,6 +944,10 @@ export class LoopEngine implements LoopEngineApi {
     if (c.patternId !== undefined) {
       this.patchTrack(id, { patternId: c.patternId })
       this.enqueueRender(id)
+    }
+    if (c.mix) {
+      this.patchTrack(id, { ...c.mix, fx: { ...c.mix.fx } })
+      this.updateAllChannels() // solo/mute change what the other tracks do
     }
     return true
   }
@@ -984,7 +1030,7 @@ export class LoopEngine implements LoopEngineApi {
   private async openMic(): Promise<boolean> {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || !this.ctx) {
       this.micStatus = "unsupported"
-      this.setMessage("This browser can't record from a microphone — use the pads")
+      this.setMessage("This browser can't record from a microphone. Use the pads.")
       return false
     }
     this.micStatus = "prompting"
@@ -1010,7 +1056,7 @@ export class LoopEngine implements LoopEngineApi {
       this.micStatus = name === "NotAllowedError" || name === "SecurityError" ? "denied" : name === "NotFoundError" ? "unsupported" : "denied"
       this.recordSource = "pads"
       this.connectInput()
-      this.setMessage("Microphone unavailable — recording from the pads instead (keys A S D F · H J K L)")
+      this.setMessage("Microphone unavailable. Recording from the pads instead (keys A S D F · H J K L).")
       return false
     }
   }
@@ -1028,7 +1074,7 @@ export class LoopEngine implements LoopEngineApi {
       return
     }
     if (this.retiming) {
-      this.setMessage("Changing tempo — try again in a moment")
+      this.setMessage("Changing tempo. Try again in a moment.")
       return
     }
     await this.armRecording(trackId)
@@ -1053,7 +1099,7 @@ export class LoopEngine implements LoopEngineApi {
       return
     }
     if (this.retiming) {
-      this.setMessage("Changing tempo — try again in a moment")
+      this.setMessage("Changing tempo. Try again in a moment.")
       return
     }
     const ctx = this.ctx
@@ -1115,7 +1161,7 @@ export class LoopEngine implements LoopEngineApi {
     const t = this.track(trackId)
     this.record_ = { kind: "idle" }
     if (data.late) {
-      this.setMessage("The recording started late — nothing was saved, try again")
+      this.setMessage("The recording started late, so nothing was saved. Try again.")
       return
     }
     if (!t) {

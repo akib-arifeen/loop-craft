@@ -4,7 +4,7 @@
 
 .app {
   width: 100%;
-  max-width: 1280px;
+  max-width: var(--size-page-max);
   margin-inline: auto;
   display: flex;
   flex-direction: column;
@@ -19,26 +19,26 @@
 
 .banner {
   flex: none;
-  min-height: 36px;
+  min-height: var(--size-control-l);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-3);
   background: var(--color-accent);
   color: var(--color-accent-ink);
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
   padding: var(--space-1) var(--space-3);
 }
 
 .resume {
-  height: 28px;
+  height: var(--size-control-s);
   padding: 0 var(--space-3);
   background: var(--color-accent-ink);
   color: var(--color-ink);
   border: 0;
   border-radius: var(--radius-pill);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .resume:hover:not(:disabled) {
@@ -78,6 +78,6 @@
 @media (min-width: 720px) and (min-height: 761px) {
   .body {
     flex: none;
-    height: min(620px, calc(100dvh - 76px));
+    height: min(var(--size-stage-max), calc(100dvh - var(--size-chrome)));
   }
 }
