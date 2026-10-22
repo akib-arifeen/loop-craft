@@ -1,0 +1,83 @@
+.main {
+  min-height: 100dvh;
+}
+
+.app {
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  transition: opacity var(--dur-med) var(--ease-out);
+}
+
+.app[data-gated="true"] {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.banner {
+  flex: none;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+  padding: var(--space-1) var(--space-3);
+}
+
+.resume {
+  height: 28px;
+  padding: 0 var(--space-3);
+  background: var(--color-accent-ink);
+  color: var(--color-ink);
+  border: 0;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+}
+
+.resume:hover:not(:disabled) {
+  background: var(--color-accent-ink);
+  filter: brightness(1.2);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  padding-bottom: var(--space-8);
+}
+
+@media (min-width: 720px) {
+  .main {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .app {
+    height: 100dvh;
+    min-height: 0;
+  }
+
+  .body {
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    grid-template-rows: minmax(0, 1fr);
+    padding-bottom: var(--space-3);
+  }
+}
+
+/* Tall desktop viewports: keep the mixer a comfortable height instead of stretching to the bottom edge. */
+@media (min-width: 720px) and (min-height: 761px) {
+  .body {
+    flex: none;
+    height: min(620px, calc(100dvh - 76px));
+  }
+}

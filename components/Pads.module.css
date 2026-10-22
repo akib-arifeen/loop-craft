@@ -1,0 +1,56 @@
+.grid {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: repeat(2, minmax(52px, 96px));
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.pad {
+  min-height: 52px;
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  touch-action: manipulation;
+  user-select: none;
+  background: color-mix(in oklch, var(--pt) 10%, var(--color-paper-3));
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+
+.pad[data-hit="true"] {
+  transform: scale(0.96);
+  border-color: var(--pt);
+  background: color-mix(in oklch, var(--pt) 30%, var(--color-paper-3));
+}
+
+.padLabel {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.padKey {
+  font-size: 11px;
+  color: var(--color-ink-3);
+}
+
+.hint {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  color: var(--color-ink-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pad[data-hit="true"] {
+    transform: none;
+  }
+}
+
+.root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
