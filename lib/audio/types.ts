@@ -48,7 +48,7 @@ export interface MelodicPattern {
  * "drums" | "bass" | "keys": synthesized — the engine renders the pattern into a loop buffer
  * and re-renders on every edit. "audio": recorded from the mic or the pads instrument.
  */
-export type TrackKind = "drums" | "bass" | "keys" | "audio"
+export type TrackKind = "drums" | "bass" | "keys" | "sample" | "audio"
 
 export interface TrackFx {
   /** DJ filter, -1..1. < 0 sweeps a low-pass down, > 0 sweeps a high-pass up, 0 is flat. */
@@ -76,6 +76,8 @@ export interface TrackState {
   drumPattern?: DrumPattern
   /** Present only when kind === "bass" | "keys": id of a preset in patterns.ts. */
   patternId?: string
+  /** Present only when kind === "sample": id of an entry in lib/samples/library.ts. */
+  sampleId?: string
   /** True when the track has a loop buffer with content (rendered or recorded). */
   hasAudio: boolean
   /** Waveform overview of the loop buffer: max |sample| per bin, 0..1. Empty when no audio. */
@@ -139,7 +141,7 @@ export interface ShareData {
   bpm: number
   bars: Bars
   tracks: Array<
-    Pick<TrackState, "id" | "kind" | "name" | "volume" | "pan" | "muted" | "soloed" | "fx" | "drumPattern" | "patternId">
+    Pick<TrackState, "id" | "kind" | "name" | "volume" | "pan" | "muted" | "soloed" | "fx" | "drumPattern" | "patternId" | "sampleId">
   >
   /** Key, mode and chord lane. Absent in codes made before harmony existed: the demo harmony is used. */
   harmony?: Harmony
@@ -179,6 +181,8 @@ export type EngineCommand =
   | { type: "setMasterVolume"; volume: number }
   | { type: "selectTrack"; id: string }
   | { type: "addAudioTrack" }
+  | { type: "addSampleTrack"; sampleId: string }
+  | { type: "importProject"; json: string }
   | { type: "removeTrack"; id: string }
   | { type: "clearTrack"; id: string }
   | { type: "setTrack"; id: string; patch: Partial<Pick<TrackState, "name" | "volume" | "pan" | "muted" | "soloed">> }
@@ -211,7 +215,7 @@ export interface SessionDocument {
   metronome: boolean
   masterVolume: number
   tracks: Array<
-    Pick<TrackState, "id" | "kind" | "name" | "volume" | "pan" | "muted" | "soloed" | "fx" | "drumPattern" | "patternId" | "hasAudio">
+    Pick<TrackState, "id" | "kind" | "name" | "volume" | "pan" | "muted" | "soloed" | "fx" | "drumPattern" | "patternId" | "sampleId" | "hasAudio">
   >
   harmony: Harmony
 }
@@ -259,6 +263,12 @@ export interface LoopEngineApi {
   selectTrack(id: string): void
   /** Adds an empty "audio" track (no-op at MAX_TRACKS). Returns the new id or null. */
   addAudioTrack(): string | null
+  /**
+   * Adds a ready-made loop from the sample shelf as a "sample" track (no-op at MAX_TRACKS or when the
+   * id isn't in lib/samples/library.ts). Returns the new id or null. The loop is rendered by the same
+   * synths from absolute pitches, so it keeps its stated key instead of following key changes.
+   */
+  addSampleTrack(sampleId: string): string | null
   removeTrack(id: string): void
   /** Audio track: drops the recording (undoable). Drum track: clears every step (undoable). */
   clearTrack(id: string): void
@@ -325,6 +335,16 @@ export interface LoopEngineApi {
   onCommand(listener: (event: CommandEvent) => void): () => void
   /** The current session as a serialisable document. */
   getDocument(): SessionDocument
+  /**
+   * The documented project JSON (see lib/audio/project.ts and the README): key, tempo, chord lane,
+   * tracks with their patterns/instruments and mix. Recorded audio is not included.
+   */
+  exportProject(): string
+  /**
+   * Validates and applies the documented project JSON. Replaces the synth/sample tracks, keeps your
+   * recorded loops, and leaves the session untouched when the document is invalid. Never throws.
+   */
+  importProject(json: string): { ok: boolean; error?: string }
   /** Transport clock for external schedulers. */
   getClock(): TransportClock
 

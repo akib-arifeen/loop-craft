@@ -4,6 +4,7 @@ import { useCallback, useRef } from "react"
 import { MAX_TRACKS } from "@/lib/audio/types"
 import { Plus } from "./icons"
 import TrackRow from "./TrackRow"
+import Samples from "./Samples"
 import { isAudible } from "@/lib/audio/dsp"
 import { useAnimationFrame, useEngine } from "./useEngine"
 import styles from "./TrackList.module.css"
@@ -37,9 +38,12 @@ export default function TrackList() {
           <TrackRow key={t.id} track={t} index={i} selected={t.id === snap.selectedTrackId} audible={isAudible(t, snap.tracks)} registerMeter={register} />
         ))}
       </ul>
-      <button type="button" className={styles.add} disabled={snap.tracks.length >= MAX_TRACKS} onClick={add}>
-        <Plus size={16} /> Add loop track
-      </button>
+      <div className={styles.addRow}>
+        <button type="button" className={styles.add} disabled={snap.tracks.length >= MAX_TRACKS} onClick={add}>
+          <Plus size={16} /> Add loop track
+        </button>
+        <Samples />
+      </div>
     </section>
   )
 }

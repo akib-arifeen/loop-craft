@@ -1,8 +1,8 @@
 # LoopCraft
 
-A multi-track looper that runs in the browser. Press play and a synthesized demo session starts. You can then edit the drum pattern, mix and effect each track, record loops from the on-screen pads or a microphone, and export the result as a WAV file.
+A multi-track looper that runs in the browser. Press play and a synthesized demo session starts. You can then edit the drum pattern, mix and effect each track, record loops from the on-screen pads or a microphone, add a ready-made sample loop that fits your key, and export the result as a WAV file.
 
-No samples, no audio libraries, no server. Every sound is synthesized with the Web Audio API, and the timing runs entirely on the audio clock.
+No third-party audio files, no audio libraries, no server. Every sound is synthesized with the Web Audio API (including the sample shelf), and the timing runs entirely on the audio clock.
 
 ## What you can do
 
@@ -11,7 +11,71 @@ No samples, no audio libraries, no server. Every sound is synthesized with the W
 - **Record loops.** Recording is quantised to the loop: it starts on the next loop boundary and captures exactly one pass. The source is either the eight-pad instrument (keys A S D F · H J K L) or a microphone. Recording onto a track that already has audio overdubs it. Undo and redo cover recordings, clears and pattern edits.
 - **Mix.** Each track has volume, pan, mute and solo, plus a DJ filter, drive, and sends to a tempo-synced delay and a convolution reverb.
 - **Export a WAV file.** The export is rendered offline through the same graph you hear, and the file loops seamlessly in other software.
+- **Add samples that fit the key.** A searchable shelf of loops with stated keys, filtered and sorted against the project key. A clashing loop says exactly which note is outside the key before you add it.
 - **Share a beat.** The tempo, patterns and mix are encoded in the URL hash.
+- **Hand the session to an agent.** The whole project is a small documented JSON document: read it, edit it, paste it back, with no account and no server.
+
+## Samples that respect your key
+
+The sample shelf (Browse samples, under the track list) holds 16 loops: drums, bass, chord stabs and arps. Each one is rendered by LoopCraft's own instrument synths from stored note data, so there is nothing to download and no licence to worry about. What makes the shelf useful is that the metadata is honest:
+
+- **A key is only shown when the pack states it.** A loop's key is written down when the loop is authored, and a unit test asserts every pitch of a keyed loop really is inside that key. The app never detects or guesses a key.
+- **Drums state "no pitch", not a guessed key.** They fit any key because there is no key to clash with.
+- **Compatibility comes from the notes.** When the project key is A minor, the shelf reads each loop's actual pitch classes against the A minor scale and sorts the list into three groups: in key, always fits (drums), and clashes. A clash names the exact offender: "Contains F♯, which is not in A minor."
+- **Filters stay musical.** Type (drums / bass / chords / arp), key (including "Fits A minor"), mode, and free-text search over names and tags.
+- **A clashing loop is still available, but never quietly.** Its row is marked, the reason is on the row, and its button says "Add anyway".
+
+A sample is fixed-pitch audio rendered from its own notes, so it deliberately does **not** follow key or chord changes. Change the key and the track detail panel tells you whether the loop still fits, and why not. Recorded loops (mic, pads) never get a key label at all, because nothing states one.
+
+## Read and write the project from an agent
+
+There is no backend, so "integration" means a file and a small runtime API, not an account. The header `{ }` button shows the project JSON, copies or downloads it, and loads a document you paste back. The same shape is available to a script driving the page:
+
+```js
+window.__loopcraft.exportProject()            // documented JSON string
+window.__loopcraft.importProject(json)        // { ok: true } or { ok: false, error }
+window.__loopcraft.getDocument()              // the engine's serialisable document
+window.__loopcraft.dispatch({ type: "setChord", index: 1, roman: "IVmaj7" })
+window.__loopcraft.onCommand(events => ...)   // every applied edit, with seq/origin
+window.__loopcraft.getClock()                 // loop frames, start time, heard step
+```
+
+The document is deliberately small:
+
+```json
+{
+  "format": "loopcraft-project",
+  "version": 1,
+  "tempo": 92,
+  "bars": 4,
+  "key": { "tonic": "A", "mode": "aeolian" },
+  "chordLane": ["i7", "VImaj7", "IIImaj7", "VIIadd6"],
+  "metronome": false,
+  "masterVolume": 0.9,
+  "tracks": [
+    { "id": "drums", "name": "Drums", "kind": "drums", "volume": 0.85, "pan": 0, "muted": false, "soloed": false,
+      "fx": { "filter": 0, "drive": 0.1, "delay": 0, "reverb": 0.08 },
+      "drumPattern": { "kick": [0, 2, 0, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0], "snare": ["…"], "clap": ["…"], "hat": ["…"] } },
+    { "id": "bass", "name": "Bass", "kind": "bass", "patternId": "bass-pulse", "volume": 0.8, "pan": 0, "muted": false,
+      "soloed": false, "fx": { "filter": -0.15, "drive": 0.25, "delay": 0, "reverb": 0 } },
+    { "id": "sample-1", "name": "Am7 Rhodes", "kind": "sample", "sampleId": "keys-am7-rhodes", "volume": 0.72, "pan": 0.15,
+      "muted": false, "soloed": false, "fx": { "filter": -0.1, "drive": 0, "delay": 0.2, "reverb": 0.3 } }
+  ]
+}
+```
+
+Rules that make it safe to hand to an agent:
+
+- `key` plus `chordLane` (one Roman numeral per bar, 1 to 8) is the harmony. Bass and keys patterns are harmony-relative, so they follow it.
+- `kind: "sample"` loops are absolute: `sampleId` names a stated loop from `lib/samples/library.ts`. Unknown ids are rejected rather than silently dropped.
+- Recorded audio is local-only and never appears in the file; importing a project leaves the recorded tracks you already have untouched.
+- Numbers are clamped (`tempo` 60 to 180, `bars` snaps to 1, 2 or 4), every structural error rejects the whole document with one readable sentence, and nothing is half-applied. `lib/audio/project.ts` is the source of truth and has its own test suite.
+
+### Strudel and AGPL
+
+Strudel is the natural text-pattern complement to this project, so I evaluated it rather than adding it. **Strudel is AGPL-3.0.** Vendoring or bundling its runtime into LoopCraft would make the distributed app a derivative work and require releasing the whole app's source under AGPL, which is not acceptable for this proprietary codebase. An iframe or link out to strudel.cc keeps the code separate but still leaves the UX split across two apps.
+
+The recommendation, not yet built, is a **data-only bridge**: export the chord lane and patterns as Strudel pattern text for copy-paste (and parse simple Strudel text back into the same project JSON). Text that a user copies between tools is not linked code, so there is no AGPL contamination. It also matches the agent-first idea better than an embedded editor.
 
 ## How it works
 
@@ -62,7 +126,22 @@ Measured in headless Chromium, using a probe `AudioWorklet` tapped on the master
 
 The probes behind these rows are in `scripts/verify/`.
 
-Unit tests use Node's built-in runner with no dependencies. There are 159 of them, covering the timing math, DSP helpers, WAV encoder, share codec, the engine's command API and input validation, and the recorder worklet (run in a Node VM with a stub processor), including seeded property and fuzz tests:
+### Re-measured on the key-aware sample lane (2026-10-24, production build, headless Chromium)
+
+The same probe scripts, run against this branch, from a real click on "Play the demo":
+
+| What | Result |
+|---|---|
+| Time to sound | **1358 ms** after the click (context `running`, master peak 0.71, every synth track metering above zero) |
+| Loop drift, 97 BPM / 1 bar (118762 frames) | 22 kick onsets = **21 loops**, every interval exactly **118762 frames**, max deviation **0 samples** |
+| Fake-mic recording (Chromium fake device fed a 0.5 s beep file) | mic granted; capture is exactly one loop, **500869 frames**; 21 beeps, spacing **24000 frames** except at the fake device's 4.0 s file wrap (**24276**, same as the earlier measurement) |
+| WAV export | 2 loops × 500869 = **1001738 frames** exactly, 16-bit stereo 48 kHz, peak 0.787, **0 clipped samples**; export seam wrap last vs first pass max diff **163**, one-sample-shift control **8167** |
+| Sample shelf metadata | unit tests assert every keyed loop's notes are inside its stated key; 9 in key / 4 always-fit / 3 clashing loops for the demo's A minor, groups and reasons rendered in the shelf |
+| Project JSON | 2453 characters for the demo session plus a sample; UI shows it, loads an edited document (tempo 120, C ionian accepted), and rejects a malformed one with "Expected format \"loopcraft-project\"." while leaving the session untouched |
+
+Browser probes at 1280×800 and 390×844 found no console or page errors, no horizontal overflow on the phone layout, and the two-row phone header still intact.
+
+Unit tests use Node's built-in runner with no dependencies. There are 275 of them, covering the timing math, DSP helpers, WAV encoder, share codec, the engine's command API and input validation, the recorder worklet (run in a Node VM with a stub processor), the harmony core, the sample library's stated metadata and key compatibility, and the project JSON round-trip and validation, including seeded property and fuzz tests:
 
 ```bash
 npm test
@@ -111,6 +190,9 @@ lib/audio/          the engine (framework-free TypeScript)
   render.ts synth.ts  offline loop rendering, synth voices
   exporter.ts wav.ts  offline mixdown, WAV encoder
   share.ts patterns.ts  share-link codec, demo session
+  project.ts        documented agent JSON: export, validate, import
+lib/samples/
+  library.ts        the 16-loop shelf, stated keys and key-compatibility math
 public/worklets/recorder.js   AudioWorklet that captures exact frame windows
 components/         React UI (CSS Modules, no UI library)
 tests/              node --test suites for the pure modules
