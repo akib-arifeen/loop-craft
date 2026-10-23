@@ -95,7 +95,7 @@ export default function LoopCraft() {
   const gated = snap.status === "idle" || snap.status === "starting" || snap.status === "error"
 
   return (
-    <main className={styles.main}>
+    <main className={styles.main} data-build="2026-10-24-key-aware-samples">
       <div className={styles.app} data-gated={gated} inert={gated}>
         {snap.status === "suspended" && (
           <div className={styles.banner} role="status">

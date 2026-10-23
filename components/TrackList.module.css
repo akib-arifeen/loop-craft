@@ -15,6 +15,13 @@
   gap: var(--space-1);
 }
 
+.addRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
 .add {
   align-self: flex-start;
   min-height: var(--size-control-l);

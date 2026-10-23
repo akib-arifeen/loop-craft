@@ -98,3 +98,60 @@
   flex: 1;
   min-height: 0;
 }
+
+/* Sample track detail: stated metadata, provenance and the live key check. */
+.sampleInfo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sampleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sampleFit {
+  padding: var(--space-half) var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-ink-3);
+  font-size: var(--text-xs);
+  color: var(--color-ink-2);
+}
+
+.sampleFit[data-fit="in-key"] {
+  border-color: var(--track-5);
+  color: var(--track-5);
+}
+
+.sampleFit[data-fit="clash"] {
+  border-color: var(--color-rec);
+  color: var(--color-rec);
+}
+
+.sampleMeta {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+}
+
+.sampleReason {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+}
+
+.sampleReason[data-fit="clash"] {
+  color: color-mix(in oklch, var(--color-rec) 72%, var(--color-ink));
+}
+
+.sampleNote {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--color-ink-3);
+}

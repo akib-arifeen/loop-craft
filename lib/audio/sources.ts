@@ -4,6 +4,7 @@ import type { LoopSource, MelodicPattern, TrackState } from "./types.ts"
 import type { Harmony } from "../harmony/types.ts"
 import { findPart } from "../harmony/presets.ts"
 import { realizePart } from "../harmony/realize.ts"
+import { findSample } from "../samples/library.ts"
 import { emptyDrumPattern } from "./patterns.ts"
 import { renderDrums, renderMelodic } from "./render.ts"
 
@@ -16,6 +17,7 @@ import { renderDrums, renderMelodic } from "./render.ts"
 export function synthSource(track: TrackState, harmony: Harmony): LoopSource {
   const kind = track.kind
   if (kind === "audio") throw new Error("synthSource: an audio track has no synth")
+  if (kind === "sample") return sampleSource(track.sampleId)
   return {
     kind: "synth",
     render: ({ sampleRate, loopFrames, bars }) => {
@@ -33,6 +35,25 @@ export function synthSource(track: TrackState, harmony: Harmony): LoopSource {
         })),
       }
       return renderMelodic(sampleRate, loopFrames, bars, kind, pattern)
+    },
+  }
+}
+
+/**
+ * The offline renderer for a "sample" track: a ready-made loop from lib/samples/library.ts, rendered
+ * from its ABSOLUTE note data by the same instrument synths (drums → renderDrums, pitched → the
+ * sample's voice). Because the pitches are absolute and stated in the library, the loop keeps its key
+ * and deliberately does not follow the project's key or chord changes. Unknown ids render nothing.
+ */
+export function sampleSource(sampleId: string | undefined): LoopSource {
+  return {
+    kind: "sample",
+    render: async ({ sampleRate, loopFrames, bars }) => {
+      const sample = findSample(sampleId)
+      if (!sample) return null
+      if (sample.voice === "drums") return renderDrums(sampleRate, loopFrames, bars, sample.drumPattern ?? emptyDrumPattern())
+      const pattern: MelodicPattern = { id: sample.id, name: sample.name, bars: sample.bars, notes: sample.notes ?? [] }
+      return renderMelodic(sampleRate, loopFrames, bars, sample.voice, pattern)
     },
   }
 }

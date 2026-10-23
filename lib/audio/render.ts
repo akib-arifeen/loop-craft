@@ -4,7 +4,7 @@
 // buffer loops seamlessly.
 
 import { foldTail } from "./dsp.ts"
-import { createNoiseBuffer, playBass, playClick, playDrum, playKeys, TAIL_SECONDS } from "./synth.ts"
+import { createNoiseBuffer, playBass, playClick, playDrum, playKeys, playPluck, TAIL_SECONDS } from "./synth.ts"
 import { secondsToFrames, stepFrame } from "./timing.ts"
 import { DRUM_VOICES } from "./types.ts"
 import type { DrumPattern, MelodicPattern } from "./types.ts"
@@ -57,7 +57,7 @@ export async function renderDrums(sampleRate: number, loopFrames: number, bars: 
 }
 
 /**
- * Renders a bass (mono buffer) or keys (stereo buffer) pattern into exactly loopFrames frames.
+ * Renders a bass (mono buffer), keys or pluck (stereo buffers) pattern into exactly loopFrames frames.
  * The pattern repeats every pattern.bars bars when shorter than the loop and is cut when longer
  * (notes whose step >= bars * 16 are dropped). Note start = stepFrame(step, loopFrames, bars*16)/sr;
  * duration = length * (loopFrames / (bars * 16)) / sr.
@@ -66,14 +66,14 @@ export async function renderMelodic(
   sampleRate: number,
   loopFrames: number,
   bars: number,
-  instrument: "bass" | "keys",
+  instrument: "bass" | "keys" | "pluck",
   pattern: MelodicPattern,
 ): Promise<AudioBuffer> {
   if (pattern.bars < 1) throw new RangeError("pattern.bars must be >= 1")
   const patternSteps = pattern.bars * 16
   const loopSteps = bars * 16
   const secPerStep = loopFrames / loopSteps / sampleRate
-  const channels = instrument === "keys" ? 2 : 1
+  const channels = instrument === "bass" ? 1 : 2
   return renderLoop(sampleRate, loopFrames, channels, TAIL_SECONDS[instrument], 0.9, (ctx, dest) => {
     for (let rep = 0; rep * patternSteps < loopSteps; rep++) {
       for (const note of pattern.notes) {
@@ -82,7 +82,8 @@ export async function renderMelodic(
         const start = stepFrame(step, loopFrames, loopSteps) / sampleRate
         const duration = note.length * secPerStep
         if (instrument === "bass") playBass(ctx, dest, note.midi, start, duration, note.velocity)
-        else playKeys(ctx, dest, note.midi, start, duration, note.velocity)
+        else if (instrument === "keys") playKeys(ctx, dest, note.midi, start, duration, note.velocity)
+        else playPluck(ctx, dest, note.midi, start, duration, note.velocity)
       }
     }
   })

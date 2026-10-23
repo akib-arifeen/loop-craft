@@ -5,6 +5,7 @@ import type { Bars, DrumPattern, ShareData, TrackFx, TrackKind } from "./types.t
 import { MODES } from "../harmony/types.ts"
 import type { Harmony, Key, Mode } from "../harmony/types.ts"
 import { formatNoteName, parseNoteName, parseRoman, romanNumeral } from "../harmony/theory.ts"
+import { findSample } from "../samples/library.ts"
 
 type ShareTrack = ShareData["tracks"][number]
 
@@ -63,14 +64,14 @@ function decodeHarmony(h: unknown): Harmony | null {
 /**
  * Encodes as base64url (RFC 4648 §5, no padding) of compact JSON. Drum lanes are written as
  * 16-character digit strings ("2000000100200000") to keep URLs short. Only tracks whose kind is
- * "drums" | "bass" | "keys" are written. Must round-trip: decodeShare(encodeShare(d)) deep-equals d
+ * "drums" | "bass" | "keys" | "sample" are written (recorded audio is never included). Must round-trip: decodeShare(encodeShare(d)) deep-equals d
  * for any valid d with only synthesized tracks (the harmony round-trips as the same key and the same chords,
  * one 4-beat bar each; it is written as h: { k: ascii tonic, m: mode, c: [ascii Roman numerals] }). Must work in both browsers and Node (no Buffer;
  * use TextEncoder + btoa/atob, both available in Node >= 16).
  */
 export function encodeShare(data: ShareData): string {
   const tracks = data.tracks
-    .filter((t) => t.kind === "drums" || t.kind === "bass" || t.kind === "keys")
+    .filter((t) => t.kind === "drums" || t.kind === "bass" || t.kind === "keys" || t.kind === "sample")
     .map((t) => {
       const o: Record<string, unknown> = {
         id: t.id,
@@ -84,6 +85,7 @@ export function encodeShare(data: ShareData): string {
       }
       if (t.drumPattern) o.d = DRUM_VOICES.map((voice) => t.drumPattern![voice].join(""))
       if (t.patternId !== undefined) o.pid = t.patternId
+      if (t.sampleId !== undefined) o.sid = t.sampleId
       return o
     })
   const out: Record<string, unknown> = { v: 1, bpm: data.bpm, bars: data.bars, t: tracks }
@@ -96,7 +98,8 @@ export function encodeShare(data: ShareData): string {
 
 /**
  * Inverse of encodeShare. Returns null for anything malformed: bad base64/JSON, v !== 1, unknown
- * kind, a drum lane that is not 16 digits 0-2, a missing patternId on bass/keys, more than
+ * kind, a drum lane that is not 16 digits 0-2, a missing patternId on bass/keys, a sample track whose
+ * sid isn't in lib/samples/library.ts, more than
  * MAX_TRACKS tracks, a code longer than 4096 characters (checked before decoding), a track id that
  * is empty, longer than 64 characters, not matching /^[A-Za-z0-9_-]+$/, or duplicated within the
  * code, or a harmony that is present but invalid (tonic not parseable, mode not in MODES, not 1..8 numerals,
@@ -118,7 +121,7 @@ export function decodeShare(code: string): ShareData | null {
       if (typeof r.id !== "string" || typeof r.n !== "string") return null
       if (r.id.length === 0 || r.id.length > 64 || !/^[A-Za-z0-9_-]+$/.test(r.id) || seenIds.has(r.id)) return null
       seenIds.add(r.id)
-      if (r.k !== "drums" && r.k !== "bass" && r.k !== "keys") return null
+      if (r.k !== "drums" && r.k !== "bass" && r.k !== "keys" && r.k !== "sample") return null
       if (!isNum(r.v) || !isNum(r.p) || typeof r.m !== "boolean" || typeof r.s !== "boolean") return null
       if (!Array.isArray(r.f) || r.f.length !== 4 || !r.f.every(isNum)) return null
       const [filter, drive, delay, reverb] = r.f as number[]
@@ -155,6 +158,11 @@ export function decodeShare(code: string): ShareData | null {
       } else if (r.pid !== undefined) {
         if (typeof r.pid !== "string") return null
         track.patternId = r.pid
+      }
+      if (r.k === "sample") {
+        // A sample track is only meaningful if this build has the loop it references.
+        if (typeof r.sid !== "string" || !findSample(r.sid)) return null
+        track.sampleId = r.sid
       }
       tracks.push(track)
     }

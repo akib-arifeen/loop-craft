@@ -113,9 +113,11 @@ export function playDrum(ctx: BaseAudioContext, dest: AudioNode, voice: DrumVoic
 }
 
 /**
- * Bass note: sawtooth at f + sine at f/2 (sub, 0.6 level) → low-pass (Q 6) whose cutoff goes
- * 180 Hz → 1100 Hz in 5 ms then decays to 260 Hz over 0.25 s. Amp: 0 → 0.45 * vel in 5 ms,
- * holds 0.8 of that until time + duration, then releases to 0 over 60 ms.
+ * Bass note (finger-style electric bass): sawtooth at f + sine at f/2 (sub, 0.6 level) + a quiet
+ * square at f (odd harmonics, 0.12) → low-pass (Q 6) whose cutoff opens 180 → 1100 Hz in 5 ms then
+ * decays to 260 Hz over 0.25 s. A 6 ms high-passed square click at 1.6 kHz (0.05 * vel) gives the
+ * finger attack, so the note reads as plucked rather than as a synth pad. Amp: 0 → 0.45 * vel in
+ * 5 ms, settles to 0.8 of that by 35 ms, holds until time + duration, releases to 0 over 60 ms.
  */
 export function playBass(ctx: BaseAudioContext, dest: AudioNode, midi: number, time: number, duration: number, velocity: number): void {
   const f = midiToHz(midi)
@@ -126,6 +128,9 @@ export function playBass(ctx: BaseAudioContext, dest: AudioNode, midi: number, t
   const sub = osc(ctx, "sine", f / 2, time, end)
   const subGain = ctx.createGain()
   subGain.gain.value = 0.6
+  const body = osc(ctx, "square", f, time, end)
+  const bodyGain = ctx.createGain()
+  bodyGain.gain.value = 0.12
   const lp = filter(ctx, "lowpass", 180, 6)
   lp.frequency.setValueAtTime(180, time)
   lp.frequency.linearRampToValueAtTime(1100, time + 0.005)
@@ -138,27 +143,34 @@ export function playBass(ctx: BaseAudioContext, dest: AudioNode, midi: number, t
   amp.gain.linearRampToValueAtTime(0, end)
   saw.connect(lp)
   sub.connect(subGain).connect(lp)
+  body.connect(bodyGain).connect(lp)
   lp.connect(amp).connect(dest)
+  // Finger / pick transient: short high-passed click, gone before the note body develops.
+  const click = osc(ctx, "square", 1600, time, time + 0.006)
+  click.connect(filter(ctx, "highpass", 1200, 0.7071))
+    .connect(decayGain(ctx, 0.05 * velocity, time, 0.006))
+    .connect(dest)
 }
 
 /**
- * Keys note (warm electric-piano-ish): sine at f + two triangles detuned ±7 cents panned
- * -0.35 / +0.35 (StereoPannerNode) → low-pass 2400 Hz (Q 0.7). Amp per note: 0 → 0.16 * vel in 8 ms,
- * decays to 60 % over 0.5 s, holds until time + max(duration, 0.508 s), then releases to 0 over 0.35 s.
- * Short notes therefore still complete the 0.5 s decay before the hold/release (piano-like): the hold
- * point is never earlier than 0.508 s after the note start.
+ * Keys note (warm electric piano, closer to a Rhodes than a sine pad): sine at f + two triangles
+ * detuned ±7 cents panned -0.35 / +0.35 + a fast-decaying sine at 2f (the tine) at 0.06, all through
+ * a low-pass whose cutoff follows velocity (1500 Hz at vel 0 → 3300 Hz at vel 1, Q 0.6). Amp per
+ * note: 0 → 0.16 * vel in 4 ms, decays to 55 % over 0.52 s, holds until time + max(duration,
+ * 0.52 s), then releases to 0 over 0.35 s. Short notes therefore still complete the decay before the
+ * hold/release (piano-like): the hold point is never earlier than 0.52 s after the note start.
  */
 export function playKeys(ctx: BaseAudioContext, dest: AudioNode, midi: number, time: number, duration: number, velocity: number): void {
   const f = midiToHz(midi)
   const peak = 0.16 * velocity
-  const hold = time + Math.max(duration, 0.508)
+  const hold = time + Math.max(duration, 0.52)
   const end = hold + 0.35
-  const lp = filter(ctx, "lowpass", 2400, 0.7)
+  const lp = filter(ctx, "lowpass", 1500 + 1800 * velocity, 0.6)
   const amp = ctx.createGain()
   amp.gain.setValueAtTime(0, time)
-  amp.gain.linearRampToValueAtTime(peak, time + 0.008)
-  amp.gain.linearRampToValueAtTime(0.6 * peak, time + 0.508)
-  amp.gain.setValueAtTime(0.6 * peak, hold)
+  amp.gain.linearRampToValueAtTime(peak, time + 0.004)
+  amp.gain.linearRampToValueAtTime(0.55 * peak, time + 0.52)
+  amp.gain.setValueAtTime(0.55 * peak, hold)
   amp.gain.linearRampToValueAtTime(0, end)
   lp.connect(amp).connect(dest)
   osc(ctx, "sine", f, time, end).connect(lp)
@@ -169,6 +181,40 @@ export function playKeys(ctx: BaseAudioContext, dest: AudioNode, midi: number, t
     pan.pan.value = 0.35 * side
     o.connect(pan).connect(lp)
   }
+  // Tine: a 2f partial that dies quickly enough to read as an attack, not as an organ stop.
+  const tine = osc(ctx, "sine", 2 * f, time, time + 0.28)
+  tine.connect(decayGain(ctx, 0.06 * velocity, time, 0.28)).connect(lp)
+}
+
+/**
+ * Pluck (the arp voice): triangle at f + sawtooth at f detuned +5 cents, both → low-pass whose
+ * cutoff falls 6200 → 900 Hz over 0.35 s, plus a 5 ms band-passed saw click for the plectrum.
+ * Amp: 0 → 0.13 * vel in 3 ms, exponential decay to 0.001 over 0.55 s. Short and bright, so
+ * 16th-note arps stay articulate at any tempo.
+ */
+export function playPluck(ctx: BaseAudioContext, dest: AudioNode, midi: number, time: number, duration: number, velocity: number): void {
+  const f = midiToHz(midi)
+  const peak = 0.13 * velocity
+  const end = time + Math.min(0.55, Math.max(0.12, duration + 0.08))
+  const lp = filter(ctx, "lowpass", 6200, 1.6)
+  lp.frequency.setValueAtTime(6200, time)
+  lp.frequency.exponentialRampToValueAtTime(900, time + 0.35)
+  const amp = ctx.createGain()
+  amp.gain.setValueAtTime(0, time)
+  amp.gain.linearRampToValueAtTime(peak, time + 0.003)
+  amp.gain.exponentialRampToValueAtTime(FLOOR, end)
+  const tri = osc(ctx, "triangle", f, time, end)
+  const saw = osc(ctx, "sawtooth", f, time, end)
+  saw.detune.setValueAtTime(5, time)
+  const sawGain = ctx.createGain()
+  sawGain.gain.value = 0.45
+  tri.connect(lp)
+  saw.connect(sawGain).connect(lp)
+  lp.connect(amp).connect(dest)
+  const pick = osc(ctx, "sawtooth", 3200, time, time + 0.005)
+  pick.connect(filter(ctx, "bandpass", 2800, 1.4))
+    .connect(decayGain(ctx, 0.03 * velocity, time, 0.005))
+    .connect(dest)
 }
 
 /** Metronome click: sine blip 2000 Hz (accent) or 1500 Hz, amp 0.4 → 0.001 over 30 ms. */
@@ -178,4 +224,4 @@ export function playClick(ctx: BaseAudioContext, dest: AudioNode, time: number, 
 }
 
 /** Tail length (seconds) each instrument needs rendered past the loop end before folding. */
-export const TAIL_SECONDS = { drums: 0.6, bass: 0.3, keys: 1.0, click: 0.05 } as const
+export const TAIL_SECONDS = { drums: 0.6, bass: 0.3, keys: 1.0, pluck: 0.6, click: 0.05 } as const

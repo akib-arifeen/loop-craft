@@ -4,6 +4,7 @@ import { useRef } from "react"
 import { BAR_OPTIONS, MAX_BPM, MIN_BPM } from "@/lib/audio/types"
 import { Download, Keyboard, Link, Lock, Metronome, Play, Record, Redo, Stop, Undo } from "./icons"
 import { setShortcuts, toggleRecord, useAnimationFrame, useEngine, useShortcuts } from "./useEngine"
+import ProjectBridge from "./ProjectBridge"
 import styles from "./Transport.module.css"
 
 export default function Transport({ onNotice }: { onNotice: (text: string) => void }) {
@@ -141,6 +142,7 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
         <button type="button" className={styles.icon} aria-label="Redo" disabled={!snap.canRedo} onClick={() => engine.redo()}>
           <Redo />
         </button>
+        <ProjectBridge onNotice={onNotice} />
       </div>
 
       <span className={`${styles.spacer} ${styles.o7}`} />

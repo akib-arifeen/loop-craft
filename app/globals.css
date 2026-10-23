@@ -21,6 +21,19 @@
   --track-7: oklch(74% 0.13 355);
   --track-8: oklch(84% 0.06 85);
 
+  --color-scrim: oklch(8% 0.01 60 / 0.72);
+  --color-shadow: oklch(0% 0 0 / 0.5);
+  --shadow-overlay: 0 var(--space-6) var(--space-8) var(--color-shadow);
+  --blur-backdrop: 6px;
+  --size-dialog-w: 640px;
+  --size-dialog-h: 760px;
+  --size-dialog-wide: 760px;
+  --size-label-xs: 34px;
+  --size-add-min: 72px;
+  --size-add-touch: 84px;
+  --tracking-wide: 0.06em;
+  --tracking-caps: 0.08em;
+
   --font-sans: var(--font-geist), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 

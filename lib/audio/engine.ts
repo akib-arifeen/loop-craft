@@ -37,6 +37,8 @@ import type { Mixer, MixerChannel } from "./mixer.ts"
 import { renderMixdown } from "./exporter.ts"
 import { encodeWav16 } from "./wav.ts"
 import { decodeShare, encodeShare } from "./share.ts"
+import { parseProject, stringifyProject, toProject } from "./project.ts"
+import { findSample } from "../samples/library.ts"
 
 /** Read-only internals exposed for probes (drift measurement, export checks) as window.__loopcraft.debug. */
 export interface EngineDebug {
@@ -593,6 +595,7 @@ export class LoopEngine implements LoopEngineApi {
       case "setMasterVolume": this.doSetMasterVolume(command.volume); break
       case "selectTrack": this.doSelectTrack(command.id); break
       case "addAudioTrack": result = this.doAddAudioTrack(); break
+      case "addSampleTrack": result = this.doAddSampleTrack(command.sampleId); break
       case "removeTrack": this.doRemoveTrack(command.id); break
       case "clearTrack": this.doClearTrack(command.id); break
       case "setTrack": this.doSetTrack(command.id, command.patch); break
@@ -606,12 +609,13 @@ export class LoopEngine implements LoopEngineApi {
       case "undo": this.doUndo(); break
       case "redo": this.doRedo(); break
       case "loadShare": result = this.doLoadShare(command.code); break
+      case "importProject": result = this.doImportProject(command.json); break
       case "setKey": this.doSetKey(command.tonic, command.mode); break
       case "setChord": result = this.doSetChord(command.index, command.roman); break
       case "setProgression": result = this.doSetProgression(command.romans); break
     }
     // No-ops emit nothing; record / loadShare report their outcome asynchronously or via the return value.
-    if (this.snap === before && command.type !== "record" && command.type !== "loadShare") return result
+    if (this.snap === before && command.type !== "record" && command.type !== "loadShare" && command.type !== "importProject") return result
     const event: CommandEvent = { seq: ++this.cmdSeq, origin, command }
     for (const l of Array.from(this.cmdListeners)) {
       try {
@@ -642,6 +646,7 @@ export class LoopEngine implements LoopEngineApi {
   setMasterVolume(volume: number): void { this.run({ type: "setMasterVolume", volume }, "user") }
   selectTrack(id: string): void { this.run({ type: "selectTrack", id }, "user") }
   addAudioTrack(): string | null { return this.run({ type: "addAudioTrack" }, "user") as string | null }
+  addSampleTrack(sampleId: string): string | null { return this.run({ type: "addSampleTrack", sampleId }, "user") as string | null }
   removeTrack(id: string): void { this.run({ type: "removeTrack", id }, "user") }
   clearTrack(id: string): void { this.run({ type: "clearTrack", id }, "user") }
   setTrack(id: string, patch: Partial<Pick<TrackState, "name" | "volume" | "pan" | "muted" | "soloed">>): void { this.run({ type: "setTrack", id, patch }, "user") }
@@ -655,6 +660,10 @@ export class LoopEngine implements LoopEngineApi {
   undo(): void { this.run({ type: "undo" }, "user") }
   redo(): void { this.run({ type: "redo" }, "user") }
   loadShare(code: string): boolean { return this.run({ type: "loadShare", code }, "user") as boolean }
+  exportProject(): string { return stringifyProject(toProject(this.getDocument())) }
+  importProject(json: string): { ok: boolean; error?: string } {
+    return this.run({ type: "importProject", json }, "user") as { ok: boolean; error?: string }
+  }
   setKey(tonic: string, mode: Mode): void { this.run({ type: "setKey", tonic, mode }, "user") }
   setChord(index: number, roman: string): boolean { return this.run({ type: "setChord", index, roman }, "user") === true }
   setProgression(romans: string): boolean { return this.run({ type: "setProgression", romans }, "user") === true }
@@ -680,6 +689,7 @@ export class LoopEngine implements LoopEngineApi {
         }
         if (t.drumPattern) o.drumPattern = cloneDrumPattern(t.drumPattern)
         if (t.patternId !== undefined) o.patternId = t.patternId
+        if (t.sampleId !== undefined) o.sampleId = t.sampleId
         return o
       }),
       harmony: cloneHarmony(this.harmony),
@@ -811,6 +821,45 @@ export class LoopEngine implements LoopEngineApi {
     this.emit()
     return id
   }
+  private doAddSampleTrack(sampleId: string): string | null {
+    if (!isStr(sampleId)) return null
+    const sample = findSample(sampleId)
+    if (!sample) {
+      this.setMessage("That sample isn't in the library")
+      return null
+    }
+    if (this.tracks.length >= MAX_TRACKS) {
+      this.setMessage("Up to 8 tracks")
+      return null
+    }
+    let n = 1
+    while (this.track(`sample-${n}`)) n++
+    const id = `sample-${n}`
+    const names = new Set(this.tracks.map((t) => t.name))
+    let name = sample.name
+    for (let i = 2; names.has(name); i++) name = `${sample.name.slice(0, 20)} ${i}`
+    const t: TrackState = {
+      id,
+      name,
+      kind: "sample",
+      volume: sample.volume,
+      pan: sample.pan,
+      muted: false,
+      soloed: false,
+      fx: { ...sample.fx },
+      sampleId: sample.id,
+      hasAudio: false,
+      peaks: [],
+    }
+    this.tracks = [...this.tracks, t]
+    this.makeChannel(t)
+    this.updateAllChannels()
+    this.selectedTrackId = id
+    this.enqueueRender(id)
+    this.emit()
+    return id
+  }
+
   private doRemoveTrack(id: string): void {
     if (!isStr(id)) return
     const t = this.track(id)
@@ -1307,6 +1356,7 @@ export class LoopEngine implements LoopEngineApi {
       }
       if (t.drumPattern) o.drumPattern = cloneDrumPattern(t.drumPattern)
       if (t.patternId !== undefined) o.patternId = t.patternId
+      if (t.sampleId !== undefined) o.sampleId = t.sampleId
       return o
     })
     return encodeShare({ v: 1, bpm: this.bpm, bars: this.bars, tracks, harmony: cloneHarmony(this.harmony) })
@@ -1351,6 +1401,7 @@ export class LoopEngine implements LoopEngineApi {
         }
         if (t.drumPattern) ts.drumPattern = cloneDrumPattern(t.drumPattern)
         if (t.patternId !== undefined) ts.patternId = t.patternId
+        if (t.sampleId !== undefined) ts.sampleId = t.sampleId
         return ts
       })
     for (const old of this.tracks) {
@@ -1374,6 +1425,61 @@ export class LoopEngine implements LoopEngineApi {
     }
     this.emit()
     return true
+  }
+
+  private doImportProject(json: string): { ok: boolean; error?: string } {
+    if (!isStr(json)) {
+      const error = "importProject: expected a JSON string"
+      this.setMessage(error)
+      return { ok: false, error }
+    }
+    const parsed = parseProject(json)
+    if (!parsed.ok) {
+      this.setMessage(parsed.error)
+      return parsed
+    }
+    const project = parsed.value
+    const audioTracks = this.tracks.filter((t) => t.kind === "audio")
+    if (project.tracks.length + audioTracks.length > MAX_TRACKS) {
+      const error = "That project has too many tracks to load next to your recorded loops"
+      this.setMessage(error)
+      return { ok: false, error }
+    }
+    const changedTempo = project.bpm !== this.bpm || project.bars !== this.bars
+    if (this.snap.tempoLocked && changedTempo) {
+      const error = "Clear the recorded loops before importing a project with a different tempo"
+      this.setMessage(error)
+      return { ok: false, error }
+    }
+    this.doCancelRecord()
+    const audioIds = new Set(audioTracks.map((t) => t.id))
+    const incoming = project.tracks.map((t) => (audioIds.has(t.id) ? { ...t, id: `${t.id}-p` } : t))
+    for (const old of this.tracks) {
+      if (isSynth(old)) {
+        this.disposeTrackAudio(old.id)
+        this.dropHistory(old.id)
+      }
+    }
+    this.dropHistory(HARMONY)
+    this.harmony = cloneHarmony(project.harmony)
+    this.tracks = [...incoming, ...audioTracks]
+    for (const t of incoming) this.makeChannel(t)
+    this.bpm = project.bpm
+    this.bars = project.bars
+    this.metronome = project.metronome
+    this.masterVolume = project.masterVolume
+    this.mixer?.setTempo(this.bpm)
+    this.mixer?.setMasterVolume(this.masterVolume)
+    if (this.ctx && this.metronomeGain) this.metronomeGain.gain.setTargetAtTime(this.metronome ? 0.6 : 0, this.ctx.currentTime, 0.01)
+    if (!this.track(this.selectedTrackId ?? "")) this.selectedTrackId = this.tracks[0]?.id ?? null
+    this.updateAllChannels()
+    if (this.ctx) {
+      if (changedTempo) this.enqueueRetime()
+      else for (const t of incoming) this.enqueueRender(t.id)
+    }
+    this.setMessage("Project loaded")
+    this.emit()
+    return { ok: true }
   }
 
   // ── meters ──
