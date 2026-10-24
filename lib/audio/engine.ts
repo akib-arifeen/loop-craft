@@ -91,11 +91,22 @@ interface UndoEntry {
   fields?: string[]
   /** Mix entries only: performance.now() when last updated. */
   at?: number
+  /** Sample add/remove entries: the whole track (null when absent), its slot and the selection on each side. */
+  track?: TrackEntry
+}
+/** Whole-track state for a sample add/remove step. */
+interface TrackEntry {
+  before: TrackState | null
+  after: TrackState | null
+  index: number
+  selectedBefore: string | null
+  selectedAfter: string | null
 }
 const MIX_COALESCE_MS = 600
 const mixOf = (t: TrackState): MixState => ({
   name: t.name, volume: t.volume, pan: t.pan, muted: t.muted, soloed: t.soloed, fx: { ...t.fx },
 })
+const cloneTrack = (t: TrackState): TrackState => ({ ...t, fx: { ...t.fx }, peaks: [...t.peaks] })
 const mixFields = (a: MixState, b: MixState): string[] => {
   const out: string[] = []
   for (const k of ["name", "volume", "pan", "muted", "soloed"] as const) if (a[k] !== b[k]) out.push(k)
@@ -851,11 +862,18 @@ export class LoopEngine implements LoopEngineApi {
       hasAudio: false,
       peaks: [],
     }
+    const selectedBefore = this.selectedTrackId
     this.tracks = [...this.tracks, t]
     this.makeChannel(t)
     this.updateAllChannels()
     this.selectedTrackId = id
     this.enqueueRender(id)
+    this.pushUndo({
+      trackId: id,
+      before: {},
+      after: {},
+      track: { before: null, after: cloneTrack(t), index: this.tracks.length - 1, selectedBefore, selectedAfter: id },
+    })
     this.emit()
     return id
   }
@@ -865,12 +883,22 @@ export class LoopEngine implements LoopEngineApi {
     const t = this.track(id)
     if (!t) return
     if (this.pending?.trackId === id) this.doCancelRecord()
+    const selectedBefore = this.selectedTrackId
     this.disposeTrackAudio(id)
     const idx = this.tracks.findIndex((x) => x.id === id)
     this.tracks = this.tracks.filter((x) => x.id !== id)
     this.dropHistory(id)
     if (this.selectedTrackId === id) {
       this.selectedTrackId = this.tracks.length ? this.tracks[Math.min(idx, this.tracks.length - 1)].id : null
+    }
+    // Only a sample track's removal is undoable; removing any other kind keeps its existing behaviour.
+    if (t.kind === "sample") {
+      this.pushUndo({
+        trackId: id,
+        before: {},
+        after: {},
+        track: { before: cloneTrack(t), after: null, index: idx, selectedBefore, selectedAfter: this.selectedTrackId },
+      })
     }
     this.updateAllChannels()
     this.emit()
@@ -885,6 +913,11 @@ export class LoopEngine implements LoopEngineApi {
   private dropHistory(id: string): void {
     this.undoStack = this.undoStack.filter((e) => e.trackId !== id)
     this.redoStack = this.redoStack.filter((e) => e.trackId !== id)
+  }
+  /** Import/share replace the whole synth/sample set; an old sample add/remove step can't apply to the new document. */
+  private dropTrackEntries(): void {
+    this.undoStack = this.undoStack.filter((e) => !e.track)
+    this.redoStack = this.redoStack.filter((e) => !e.track)
   }
   private doSetTrack(id: string, patch: Partial<Pick<TrackState, "name" | "volume" | "pan" | "muted" | "soloed">>): void {
     if (!isStr(id) || !this.track(id) || !patch || typeof patch !== "object") return
@@ -1065,24 +1098,54 @@ export class LoopEngine implements LoopEngineApi {
     }
     return true
   }
+  /**
+   * Undo/redo for one sample add/remove step. Returns false when it can't be applied here (the other
+   * side already exists, or the track cap would be exceeded), so the caller drops it instead of
+   * clobbering a same-id track introduced by an import or a re-used id.
+   */
+  private applyTrackEntry(e: UndoEntry, side: "before" | "after"): boolean {
+    const entry = e.track!
+    const target = entry[side]
+    const existing = this.track(e.trackId)
+    if (!target) {
+      if (!existing) return false
+      this.disposeTrackAudio(e.trackId)
+      this.tracks = this.tracks.filter((t) => t.id !== e.trackId)
+    } else {
+      if (existing || this.tracks.length >= MAX_TRACKS) return false
+      const t = cloneTrack(target)
+      t.hasAudio = false
+      t.peaks = []
+      const at = clamp(entry.index, 0, this.tracks.length)
+      this.tracks = [...this.tracks.slice(0, at), t, ...this.tracks.slice(at)]
+      this.makeChannel(t)
+      this.enqueueRender(t.id)
+    }
+    this.selectedTrackId = side === "before" ? entry.selectedBefore : entry.selectedAfter
+    if (!this.track(this.selectedTrackId ?? "")) this.selectedTrackId = this.tracks[0]?.id ?? null
+    this.updateAllChannels()
+    return true
+  }
   private doUndo(): void {
     let e = this.undoStack.pop()
-    while (e && e.trackId !== HARMONY && !this.track(e.trackId)) e = this.undoStack.pop()
+    while (e && e.trackId !== HARMONY && !e.track && !this.track(e.trackId)) e = this.undoStack.pop()
     if (!e) {
       this.emit()
       return
     }
-    if (this.applyContent(e.trackId, e.before)) this.redoStack.push(e)
+    const applied = e.track ? this.applyTrackEntry(e, "before") : this.applyContent(e.trackId, e.before)
+    if (applied) this.redoStack.push(e)
     this.emit()
   }
   private doRedo(): void {
     let e = this.redoStack.pop()
-    while (e && e.trackId !== HARMONY && !this.track(e.trackId)) e = this.redoStack.pop()
+    while (e && e.trackId !== HARMONY && !e.track && !this.track(e.trackId)) e = this.redoStack.pop()
     if (!e) {
       this.emit()
       return
     }
-    if (this.applyContent(e.trackId, e.after)) this.undoStack.push(e)
+    const applied = e.track ? this.applyTrackEntry(e, "after") : this.applyContent(e.trackId, e.after)
+    if (applied) this.undoStack.push(e)
     this.emit()
   }
 
@@ -1411,6 +1474,7 @@ export class LoopEngine implements LoopEngineApi {
       }
     }
     this.dropHistory(HARMONY)
+    this.dropTrackEntries()
     this.harmony = data.harmony ? cloneHarmony(data.harmony) : demoHarmony()
     this.tracks = [...shared, ...audioTracks]
     for (const t of shared) this.makeChannel(t)
@@ -1461,6 +1525,7 @@ export class LoopEngine implements LoopEngineApi {
       }
     }
     this.dropHistory(HARMONY)
+    this.dropTrackEntries()
     this.harmony = cloneHarmony(project.harmony)
     this.tracks = [...incoming, ...audioTracks]
     for (const t of incoming) this.makeChannel(t)

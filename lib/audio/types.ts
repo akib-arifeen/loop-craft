@@ -265,10 +265,12 @@ export interface LoopEngineApi {
   addAudioTrack(): string | null
   /**
    * Adds a ready-made loop from the sample shelf as a "sample" track (no-op at MAX_TRACKS or when the
-   * id isn't in lib/samples/library.ts). Returns the new id or null. The loop is rendered by the same
+   * id isn't in lib/samples/library.ts). Returns the new id or null. Undoable (one step): undo removes
+   * the track and redo adds it back with the same id. The loop is rendered by the same
    * synths from absolute pitches, so it keeps its stated key instead of following key changes.
    */
   addSampleTrack(sampleId: string): string | null
+  /** Removes a track. Removing a "sample" track is undoable; removing any other kind is not. */
   removeTrack(id: string): void
   /** Audio track: drops the recording (undoable). Drum track: clears every step (undoable). */
   clearTrack(id: string): void
