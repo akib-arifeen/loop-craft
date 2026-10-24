@@ -157,6 +157,113 @@ describe("sample audition invalidation", () => {
   })
 })
 
+type AudioProbe = {
+  ctx: { state: AudioContextState }
+  counters: { channels: number; resumes: number }
+}
+
+/** Installs just enough of a live audio graph for the real canAudition/startAuditionAudio checks. */
+function installFakeAudio(e: LoopEngine, state: AudioContextState): AudioProbe {
+  const counters = { channels: 0, resumes: 0 }
+  const channel = { input: {}, update() {}, dispose() {} }
+  const ctx = {
+    state,
+    currentTime: 0,
+    sampleRate: 48000,
+    resume: () => {
+      counters.resumes++
+      return Promise.resolve()
+    },
+    createGain: () => ({
+      gain: { value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, cancelScheduledValues() {} },
+      connect(node: unknown) {
+        return node
+      },
+      disconnect() {},
+    }),
+    createBufferSource: () => ({
+      buffer: null as AudioBuffer | null,
+      loop: false,
+      onended: null as (() => void) | null,
+      connect(node: unknown) {
+        return node
+      },
+      start() {},
+      stop() {},
+    }),
+  }
+  const mixer = {
+    createChannel: () => {
+      counters.channels++
+      return channel
+    },
+  }
+  Object.assign(e as any, { ctx, mixer, audioReady: true, L: 48000, loopBars: 2 })
+  return { ctx, counters }
+}
+
+class GuardProbe extends LoopEngine {
+  starts = 0
+  allowed(): boolean {
+    return this.canAudition()
+  }
+  protected override startAuditionAudio(): void {
+    this.starts++
+  }
+}
+
+class DeferredRenderProbe extends LoopEngine {
+  private settle: ((buffer: AudioBuffer | null) => void) | null = null
+  protected override renderAudition(): Promise<AudioBuffer | null> {
+    return new Promise((resolve) => {
+      this.settle = resolve
+    })
+  }
+  finishRender(): void {
+    this.settle?.({} as AudioBuffer)
+  }
+}
+
+describe("sample audition requires running audio", () => {
+  test("a suspended context refuses to arm and is not resumed", () => {
+    const e = new GuardProbe()
+    const probe = installFakeAudio(e, "suspended")
+
+    assert.equal(e.allowed(), false)
+    assert.equal(e.auditionSample("keys-am7-rhodes"), false)
+    assert.equal(e.getSnapshot().audition, null)
+    assert.equal(e.starts, 0)
+    assert.equal(probe.counters.resumes, 0, "refusing must not resume the context")
+    assert.equal(e.getSnapshot().message, "Start the audio to preview a sample")
+  })
+
+  test("a running context arms normally", () => {
+    const e = new GuardProbe()
+    installFakeAudio(e, "running")
+
+    assert.equal(e.allowed(), true)
+    assert.equal(e.auditionSample("keys-am7-rhodes"), true)
+    assert.equal(e.getSnapshot().audition?.sampleId, "keys-am7-rhodes")
+    assert.equal(e.starts, 1)
+  })
+
+  test("a suspension during an in-flight render clears the preview instead of arming it", async () => {
+    const e = new DeferredRenderProbe()
+    const probe = installFakeAudio(e, "running")
+
+    assert.equal(e.auditionSample("keys-am7-rhodes"), true)
+    assert.equal(e.getSnapshot().audition?.sampleId, "keys-am7-rhodes")
+
+    probe.ctx.state = "suspended"
+    e.finishRender()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    assert.equal(e.getSnapshot().audition, null)
+    assert.equal(probe.counters.channels, 0, "a suspended context must not create the preview channel")
+    assert.equal(e.getSnapshot().message, "Start the audio to preview a sample")
+  })
+})
+
 describe("sample audition is performance, not an edit", () => {
   test("previewing leaves an existing undo history and the mix untouched", () => {
     const e = new AuditionProbe()

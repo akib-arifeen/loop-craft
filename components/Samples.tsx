@@ -204,7 +204,9 @@ export default function Samples() {
                 <ul className={styles.list}>
                   {rows.map((row, i) => {
                     const prevGroup = i > 0 ? rows[i - 1].fit.group : -1
-                    const isAdded = added.includes(row.sample.id)
+                    const isAdded =
+                      added.includes(row.sample.id) &&
+                      snap.tracks.some((t) => t.kind === "sample" && t.sampleId === row.sample.id)
                     return (
                       <li key={row.sample.id} className={styles.item}>
                         {row.fit.group !== prevGroup && (
