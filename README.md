@@ -24,6 +24,7 @@ The sample shelf (Browse samples, under the track list) holds 16 loops: drums, b
 - **Compatibility comes from the notes.** When the project key is A minor, the shelf reads each loop's actual pitch classes against the A minor scale and sorts the list into three groups: in key, always fits (drums), and clashes. A clash names the exact offender: "Contains F♯, which is not in A minor."
 - **Filters stay musical.** Type (drums / bass / chords / arp), key (including "Fits A minor"), mode, and free-text search over names and tags.
 - **A clashing loop is still available, but never quietly.** Its row is marked, the reason is on the row, and its button says "Add anyway".
+- **Preview before you add.** Each row's Preview button plays the loop through the same synth and mixer on the audio clock, without adding a track. One loop previews at a time: pressing Stop, previewing another loop, closing the shelf, filtering the row away or replacing the document stops it. A preview never touches the project JSON or the undo history.
 
 A sample is fixed-pitch audio rendered from its own notes, so it deliberately does **not** follow key or chord changes. Change the key and the track detail panel tells you whether the loop still fits, and why not. Recorded loops (mic, pads) never get a key label at all, because nothing states one.
 
@@ -35,6 +36,7 @@ There is no backend, so "integration" means a file and a small runtime API, not 
 window.__loopcraft.exportProject()            // documented JSON string
 window.__loopcraft.importProject(json)        // { ok: true } or { ok: false, error }
 window.__loopcraft.getDocument()              // the engine's serialisable document
+window.__loopcraft.auditionSample("keys-am7-rhodes") // preview a shelf loop; stopAudition() ends it
 window.__loopcraft.dispatch({ type: "setChord", index: 1, roman: "IVmaj7" })
 window.__loopcraft.onCommand(events => ...)   // every applied edit, with seq/origin
 window.__loopcraft.getClock()                 // loop frames, start time, heard step
@@ -141,7 +143,7 @@ The same probe scripts, run against this branch, from a real click on "Play the 
 
 Browser probes at 1280×800 and 390×844 found no console or page errors, no horizontal overflow on the phone layout, and the two-row phone header still intact.
 
-Unit tests use Node's built-in runner with no dependencies. There are 275 of them, covering the timing math, DSP helpers, WAV encoder, share codec, the engine's command API and input validation, the recorder worklet (run in a Node VM with a stub processor), the harmony core, the sample library's stated metadata and key compatibility, and the project JSON round-trip and validation, including seeded property and fuzz tests:
+Unit tests use Node's built-in runner with no dependencies. There are 297 of them, covering the timing math, DSP helpers, WAV encoder, share codec, the engine's command API and input validation, sample audition state, the recorder worklet (run in a Node VM with a stub processor), the harmony core, the sample library's stated metadata and key compatibility, and the project JSON round-trip and validation, including seeded property and fuzz tests:
 
 ```bash
 npm test

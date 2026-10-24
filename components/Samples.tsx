@@ -5,6 +5,7 @@ import {
   SAMPLE_CATALOG,
   SAMPLE_TYPES,
   SAMPLE_TYPE_LABELS,
+  findSample,
   keyLabel,
   modeName,
   searchSamples,
@@ -16,7 +17,7 @@ import {
 import type { Mode } from "@/lib/harmony/types"
 import { MAX_TRACKS } from "@/lib/audio/types"
 import { useEngine } from "./useEngine"
-import { X } from "./icons"
+import { Play, Stop, X } from "./icons"
 import styles from "./Samples.module.css"
 
 type KeyFilter = "any" | "fits" | string
@@ -41,16 +42,26 @@ export default function Samples() {
   const projectKey = snap.harmony.key
   const project = keyLabel(projectKey)
   const atMax = snap.tracks.length >= MAX_TRACKS
+  const auditioningId = snap.audition?.sampleId ?? null
+  const auditioningSample = auditioningId ? findSample(auditioningId) : undefined
+
+  const closeShelf = () => {
+    engine.stopAudition()
+    setOpen(false)
+  }
 
   useEffect(() => {
     if (!open) return
     searchRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false)
+      if (e.key === "Escape") {
+        engine.stopAudition()
+        setOpen(false)
+      }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open])
+  }, [open, engine])
 
   const keys = useMemo(() => {
     const seen = new Map<string, string>()
@@ -72,6 +83,17 @@ export default function Samples() {
     if (modeFilter !== "any") list = list.filter((s) => s.key?.mode === modeFilter)
     return sortSamples(searchSamples(list, query), projectKey)
   }, [type, keyFilter, modeFilter, query, projectKey])
+
+  const togglePreview = (sample: SampleLoop) => {
+    if (auditioningId === sample.id) engine.stopAudition()
+    else engine.auditionSample(sample.id)
+  }
+
+  // A filtered-out preview would have no visible Stop control, so it stops rather than keeps sounding.
+  useEffect(() => {
+    if (!open || !auditioningId) return
+    if (!rows.some((row) => row.sample.id === auditioningId)) engine.stopAudition()
+  }, [open, auditioningId, rows, engine])
 
   const add = (sample: SampleLoop) => {
     const id = engine.addSampleTrack(sample.id)
@@ -96,7 +118,7 @@ export default function Samples() {
       </button>
 
       {open && (
-        <div className={styles.overlay} role="presentation" onPointerDown={(e) => e.target === e.currentTarget && setOpen(false)}>
+        <div className={styles.overlay} role="presentation" onPointerDown={(e) => e.target === e.currentTarget && closeShelf()}>
           <div className={styles.panel} role="dialog" aria-modal="true" aria-labelledby="samples-title" data-testid="sample-shelf">
             <div className={styles.head}>
               <div>
@@ -107,10 +129,15 @@ export default function Samples() {
                   Ready-made loops, rendered by LoopCraft&rsquo;s own instruments. Sorted for <strong>{project}</strong>: compatible loops first.
                 </p>
               </div>
-              <button type="button" className={styles.close} aria-label="Close samples" onClick={() => setOpen(false)}>
+              <button type="button" className={styles.close} aria-label="Close samples" onClick={closeShelf}>
                 <X size={18} />
               </button>
             </div>
+            <span className={styles.srOnly} role="status" aria-live="polite">
+              {auditioningSample
+                ? `Previewing ${auditioningSample.name}${auditioningSample.key ? `, ${keyLabel(auditioningSample.key)}` : ", no pitch"}.`
+                : ""}
+            </span>
 
             <div className={styles.controls}>
               <input
@@ -185,7 +212,7 @@ export default function Samples() {
                             {GROUP_TITLES(project)[row.fit.group]}
                           </h3>
                         )}
-                        <div className={styles.row} data-fit={row.fit.fit}>
+                        <div className={styles.row} data-fit={row.fit.fit} data-previewing={auditioningId === row.sample.id ? "true" : undefined}>
                           <div className={styles.info}>
                             <span className={styles.rowHead}>
                               <span className={styles.name}>{row.sample.name}</span>
@@ -198,6 +225,21 @@ export default function Samples() {
                             </span>
                             <span className={styles.reason}>{row.fit.reason}</span>
                           </div>
+                          <button
+                            type="button"
+                            className={styles.preview}
+                            aria-pressed={auditioningId === row.sample.id}
+                            aria-label={
+                              auditioningId === row.sample.id
+                                ? `Stop preview of ${row.sample.name}`
+                                : `Preview ${row.sample.name}${row.sample.key ? `, ${keyLabel(row.sample.key)}` : ", no pitch"}`
+                            }
+                            title={auditioningId === row.sample.id ? "Stop preview" : "Preview without adding it to the session"}
+                            onClick={() => togglePreview(row.sample)}
+                          >
+                            {auditioningId === row.sample.id ? <Stop size={14} /> : <Play size={14} />}
+                            <span>{auditioningId === row.sample.id ? "Stop" : "Preview"}</span>
+                          </button>
                           <button
                             type="button"
                             className={styles.add}

@@ -130,6 +130,11 @@ export interface EngineSnapshot {
   message: string | null
   /** Key, mode and chord lane. Bass and keys parts are realised against it. */
   harmony: Harmony
+  /**
+   * The shelf loop being auditioned right now, or null. Preview state only: it is never written to
+   * the project document, the undo history or a CommandEvent.
+   */
+  audition: { sampleId: string; startedAt: number } | null
 }
 
 /**
@@ -270,6 +275,16 @@ export interface LoopEngineApi {
    * synths from absolute pitches, so it keeps its stated key instead of following key changes.
    */
   addSampleTrack(sampleId: string): string | null
+  /**
+   * Auditions a shelf loop without adding it to the session: one at a time, rendered by the same
+   * synths at the project's current loop length and played through the mixer on the audio clock.
+   * Auditioning the same loop again retriggers it; a different one stops the previous preview.
+   * Returns false (state unchanged) for an unknown id or when audio is not running. Not undoable:
+   * it never changes the project document.
+   */
+  auditionSample(sampleId: string): boolean
+  /** Stops the current preview. Safe to call when nothing is auditioning. */
+  stopAudition(): void
   /** Removes a track. Removing a "sample" track is undoable; removing any other kind is not. */
   removeTrack(id: string): void
   /** Audio track: drops the recording (undoable). Drum track: clears every step (undoable). */
