@@ -31,7 +31,7 @@ import { computePeaks, isAudible, mixInto } from "./dsp.ts"
 import { captureWindow, loopFrameCount, loopOffset, loopPhase, nextBoundary, secondsToFrames, stepFrame } from "./timing.ts"
 import { createNoiseBuffer, playDrum, playKeys } from "./synth.ts"
 import { renderClickTrack } from "./render.ts"
-import { synthSource } from "./sources.ts"
+import { synthSource, sampleSource } from "./sources.ts"
 import { createImpulse, createMixer, MASTER_LOOKAHEAD_S } from "./mixer.ts"
 import type { Mixer, MixerChannel } from "./mixer.ts"
 import { renderMixdown } from "./exporter.ts"
@@ -39,6 +39,7 @@ import { encodeWav16 } from "./wav.ts"
 import { decodeShare, encodeShare } from "./share.ts"
 import { parseProject, stringifyProject, toProject } from "./project.ts"
 import { findSample } from "../samples/library.ts"
+import type { SampleLoop } from "../samples/library.ts"
 
 /** Read-only internals exposed for probes (drift measurement, export checks) as window.__loopcraft.debug. */
 export interface EngineDebug {
@@ -149,6 +150,9 @@ export class LoopEngine implements LoopEngineApi {
   private messageTimer: ReturnType<typeof setTimeout> | null = null
   private undoStack: UndoEntry[] = []
   private redoStack: UndoEntry[] = []
+  /** Preview only: never part of the document, the undo stack or the command log. */
+  private audition: { sampleId: string; startedAt: number } | null = null
+  private auditionToken = 0
 
   // audio
   private ctx: AudioContext | null = null
@@ -157,6 +161,9 @@ export class LoopEngine implements LoopEngineApi {
   private buffers = new Map<string, AudioBuffer>()
   private clickBuffer: AudioBuffer | null = null
   private voices = new Map<string, Voice>()
+  private auditionSrc: AudioBufferSourceNode | null = null
+  private auditionGain: GainNode | null = null
+  private auditionChannel: MixerChannel | null = null
   private metronomeGain: GainNode | null = null
   private countInGain: GainNode | null = null
   private countInSrc: AudioBufferSourceNode | null = null
@@ -226,6 +233,7 @@ export class LoopEngine implements LoopEngineApi {
       exporting: this.exporting,
       message: this.message,
       harmony: this.harmony,
+      audition: this.audition ? { ...this.audition } : null,
     }
   }
 
@@ -658,6 +666,8 @@ export class LoopEngine implements LoopEngineApi {
   selectTrack(id: string): void { this.run({ type: "selectTrack", id }, "user") }
   addAudioTrack(): string | null { return this.run({ type: "addAudioTrack" }, "user") as string | null }
   addSampleTrack(sampleId: string): string | null { return this.run({ type: "addSampleTrack", sampleId }, "user") as string | null }
+  auditionSample(sampleId: string): boolean { return this.doAuditionSample(sampleId) }
+  stopAudition(): void { this.doStopAudition() }
   removeTrack(id: string): void { this.run({ type: "removeTrack", id }, "user") }
   clearTrack(id: string): void { this.run({ type: "clearTrack", id }, "user") }
   setTrack(id: string, patch: Partial<Pick<TrackState, "name" | "volume" | "pan" | "muted" | "soloed">>): void { this.run({ type: "setTrack", id, patch }, "user") }
@@ -771,6 +781,7 @@ export class LoopEngine implements LoopEngineApi {
       return
     }
     if (b === this.bpm) return
+    this.clearAudition()
     this.doCancelRecord()
     this.bpm = b
     this.mixer?.setTempo(b)
@@ -784,6 +795,7 @@ export class LoopEngine implements LoopEngineApi {
       return
     }
     if (bars === this.bars) return
+    this.clearAudition()
     this.doCancelRecord()
     this.bars = bars
     this.emit()
@@ -878,10 +890,105 @@ export class LoopEngine implements LoopEngineApi {
     return id
   }
 
+  // ── sample audition: performance only, never a session edit ──
+  private doAuditionSample(sampleId: string): boolean {
+    if (!isStr(sampleId)) return false
+    const sample = findSample(sampleId)
+    if (!sample) {
+      this.setMessage("That sample isn't in the library")
+      return false
+    }
+    if (!this.canAudition()) {
+      this.setMessage("Start the audio to preview a sample")
+      return false
+    }
+    // One at a time: retriggering the same loop tears it down and starts a fresh pass too.
+    this.clearAudition()
+    this.audition = { sampleId: sample.id, startedAt: this.ctx?.currentTime ?? 0 }
+    this.startAuditionAudio(sample, this.auditionToken)
+    this.emit()
+    return true
+  }
+  private doStopAudition(): void {
+    if (!this.clearAudition()) return
+    this.emit()
+  }
+  /** Clears the preview state and tears down its nodes. Returns whether one was showing. */
+  private clearAudition(): boolean {
+    const had = this.audition !== null
+    const hadAudio = this.auditionSrc !== null || this.auditionChannel !== null
+    this.auditionToken++
+    this.audition = null
+    if (had || hadAudio) this.stopAuditionAudio()
+    return had
+  }
+  /** Whether a preview can play. Separated so the audition state machine is testable without Web Audio. */
+  protected canAudition(): boolean {
+    return !!this.ctx && this.audioReady && !!this.mixer
+  }
+  /**
+   * Renders the loop at the project's current loop length and starts it looping on the audio clock.
+   * `token` drops a render that finished after the preview was stopped or replaced.
+   */
+  protected startAuditionAudio(sample: SampleLoop, token: number): void {
+    const ctx = this.ctx
+    const mixer = this.mixer
+    if (!ctx || !mixer) return
+    const sampleRate = this.sr
+    const loopFrames = this.L
+    const bars = this.loopBars
+    void sampleSource(sample.id)
+      .render({ sampleRate, loopFrames, bars })
+      .then((buffer) => {
+        if (!buffer || token !== this.auditionToken || this.audition?.sampleId !== sample.id) return
+        const channel = mixer.createChannel()
+        channel.update({ volume: sample.volume, pan: sample.pan, fx: sample.fx, audible: true }, true)
+        const gain = ctx.createGain()
+        const startAt = ctx.currentTime + 0.01
+        gain.gain.setValueAtTime(0, startAt)
+        gain.gain.linearRampToValueAtTime(1, startAt + XFADE_S)
+        const src = ctx.createBufferSource()
+        src.buffer = buffer
+        src.loop = true
+        src.connect(gain).connect(channel.input)
+        src.onended = () => gain.disconnect()
+        src.start(startAt)
+        this.auditionSrc = src
+        this.auditionGain = gain
+        this.auditionChannel = channel
+      })
+      .catch(() => {
+        if (token === this.auditionToken) this.doStopAudition()
+      })
+  }
+  /** Fades the preview out, then disposes its private channel. */
+  protected stopAuditionAudio(): void {
+    const ctx = this.ctx
+    const src = this.auditionSrc
+    const gain = this.auditionGain
+    this.auditionSrc = null
+    this.auditionGain = null
+    if (src && gain && ctx) {
+      const now = ctx.currentTime
+      gain.gain.cancelScheduledValues(now)
+      gain.gain.setValueAtTime(gain.gain.value, now)
+      gain.gain.linearRampToValueAtTime(0, now + XFADE_S)
+      try {
+        src.stop(now + XFADE_S + 0.01)
+      } catch {
+        /* already stopped */
+      }
+    }
+    const channel = this.auditionChannel
+    this.auditionChannel = null
+    if (channel) setTimeout(() => channel.dispose(), DISPOSE_DELAY_MS)
+  }
+
   private doRemoveTrack(id: string): void {
     if (!isStr(id)) return
     const t = this.track(id)
     if (!t) return
+    this.clearAudition()
     if (this.pending?.trackId === id) this.doCancelRecord()
     const selectedBefore = this.selectedTrackId
     this.disposeTrackAudio(id)
@@ -1444,6 +1551,7 @@ export class LoopEngine implements LoopEngineApi {
       this.setMessage("That beat has too many tracks to load next to your loops")
       return false
     }
+    this.clearAudition()
     this.doCancelRecord()
     const audioTracks = this.tracks.filter((t) => t.kind === "audio")
     const audioIds = new Set(audioTracks.map((t) => t.id))
@@ -1515,6 +1623,7 @@ export class LoopEngine implements LoopEngineApi {
       this.setMessage(error)
       return { ok: false, error }
     }
+    this.clearAudition()
     this.doCancelRecord()
     const audioIds = new Set(audioTracks.map((t) => t.id))
     const incoming = project.tracks.map((t) => (audioIds.has(t.id) ? { ...t, id: `${t.id}-p` } : t))
