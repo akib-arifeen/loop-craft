@@ -397,6 +397,9 @@ export class LoopEngine implements LoopEngineApi {
         if (ctx.state === "running") {
           if (this.status === "suspended") this.status = "ready"
         } else if (this.status === "ready") this.status = "suspended"
+        if (ctx.state !== "running" && this.clearAudition()) {
+          this.setMessage("Audio was interrupted, so the preview stopped.")
+        }
         if (ctx.state !== "running" && (this.pending || this.record_.kind !== "idle")) {
           this.doCancelRecord()
           this.setMessage("Audio was interrupted, so the recording was cancelled.")
@@ -924,7 +927,11 @@ export class LoopEngine implements LoopEngineApi {
   }
   /** Whether a preview can play. Separated so the audition state machine is testable without Web Audio. */
   protected canAudition(): boolean {
-    return !!this.ctx && this.audioReady && !!this.mixer
+    return !!this.ctx && this.ctx.state === "running" && this.audioReady && !!this.mixer
+  }
+  /** Renders a preview at the project's current loop length. Separated so a late render can be tested. */
+  protected renderAudition(sample: SampleLoop): Promise<AudioBuffer | null> {
+    return sampleSource(sample.id).render({ sampleRate: this.sr, loopFrames: this.L, bars: this.loopBars })
   }
   /**
    * Renders the loop at the project's current loop length and starts it looping on the audio clock.
@@ -934,13 +941,14 @@ export class LoopEngine implements LoopEngineApi {
     const ctx = this.ctx
     const mixer = this.mixer
     if (!ctx || !mixer) return
-    const sampleRate = this.sr
-    const loopFrames = this.L
-    const bars = this.loopBars
-    void sampleSource(sample.id)
-      .render({ sampleRate, loopFrames, bars })
+    void this.renderAudition(sample)
       .then((buffer) => {
         if (!buffer || token !== this.auditionToken || this.audition?.sampleId !== sample.id) return
+        if (!this.canAudition()) {
+          this.setMessage("Start the audio to preview a sample")
+          this.doStopAudition()
+          return
+        }
         const channel = mixer.createChannel()
         channel.update({ volume: sample.volume, pan: sample.pan, fx: sample.fx, audible: true }, true)
         const gain = ctx.createGain()
