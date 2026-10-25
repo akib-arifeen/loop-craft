@@ -310,7 +310,12 @@
 .badge[data-fit="clash"] {
   border-color: var(--color-rec);
   background: color-mix(in oklch, var(--color-rec) 16%, transparent);
-  color: var(--color-rec);
+  color: var(--color-ink);
+}
+
+/* The washed row raises the background luminance; step the secondary text up so it stays AA. */
+.row[data-fit="clash"] .meta {
+  color: var(--color-ink-2);
 }
 
 .name {
@@ -392,7 +397,7 @@
 }
 
 .row[data-fit="clash"] .add {
-  color: var(--color-rec);
+  color: color-mix(in oklch, var(--color-rec) 55%, var(--color-ink));
   border-color: color-mix(in oklch, var(--color-rec) 55%, var(--color-edge));
 }
 

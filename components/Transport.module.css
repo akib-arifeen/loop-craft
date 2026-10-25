@@ -77,6 +77,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  position: relative;
 }
 
 .step {
@@ -84,6 +85,15 @@
   height: var(--size-control-m);
   font-size: var(--text-2xl);
   line-height: 1;
+}
+
+.step[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.step[aria-disabled="true"]:hover {
+  background: var(--color-paper-3);
 }
 
 .bpmValue {
@@ -144,7 +154,8 @@
   background: var(--color-accent);
 }
 
-.lockNote {
+.lockNote,
+.tempoLockNote {
   position: absolute;
   width: 1px;
   height: 1px;

@@ -110,8 +110,18 @@ export interface EngineSnapshot {
   playing: boolean
   bpm: number
   bars: Bars
-  /** True while any "audio" track has recorded content: tempo and bars cannot change. */
+  /** True while any audio track holds a recorded buffer, including a silent take: tempo and bars cannot change. */
   tempoLocked: boolean
+  /** Number of audio tracks that hold a recorded buffer, including silent takes. */
+  recordedLoops: number
+  /** Integer frames in one loop at the current tempo/length, or 1 before the audio starts. */
+  loopFrames: number
+  /** AudioContext sample rate, or 0 before the audio starts. */
+  sampleRate: number
+  /** True while a tempo/length retime is queued or rendering; loopFrames may not match bpm/bars yet. */
+  retiming: boolean
+  /** True when exportWav can render audio that matches the current bpm/bars. */
+  exportReady: boolean
   metronome: boolean
   masterVolume: number
   tracks: TrackState[]

@@ -2,10 +2,13 @@
 
 import { useEffect, useRef, useState } from "react"
 import { BAR_OPTIONS, MAX_BPM, MIN_BPM } from "@/lib/audio/types"
+import { exportFileName, formatSeconds, loopDurationSeconds } from "@/lib/audio/timing"
 import { Check, Download, Keyboard, Link, Lock, Metronome, Play, Record, Redo, Stop, Undo } from "./icons"
 import { setShortcuts, toggleRecord, useAnimationFrame, useEngine, useShortcuts } from "./useEngine"
 import ProjectBridge from "./ProjectBridge"
 import styles from "./Transport.module.css"
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
 export default function Transport({ onNotice }: { onNotice: (text: string) => void }) {
   const { engine, snap } = useEngine()
@@ -29,26 +32,46 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
 
   const recording = snap.record.kind !== "idle"
   const locked = snap.tempoLocked
-  const tempoLockTitle = "Clear recorded loops to change tempo"
+  const recordedLoops = snap.recordedLoops
+  const recordedLabel = plural(recordedLoops, "recorded loop", "recorded loops")
+  const tempoLockTitle = "Tempo is locked while recorded loops exist. Clear the recorded loops to change it."
   const barsLockTitle = "Loop length is locked while recorded loops exist. Clear the recorded loops to change it."
-  const hasRecordedLoops = snap.tracks.some((t) => t.kind === "audio" && t.hasAudio)
   const exportLoops = 2
-  const exportSeconds = Math.round((snap.bars * 4 * 60 * exportLoops) / snap.bpm)
-  const exportName = `loopcraft-${snap.bpm}bpm-${snap.bars}bars-${exportLoops}loops-${exportSeconds}s.wav`
-  const exportTitle = `Export WAV: ${exportLoops} loops of ${snap.bars} bars at ${snap.bpm} BPM, about ${exportSeconds} seconds`
+  const exportDuration = loopDurationSeconds(snap.loopFrames, snap.sampleRate, exportLoops)
+  const exportDurationLabel = formatSeconds(exportDuration)
+  const exportBars = `${snap.bars} ${snap.bars === 1 ? "bar" : "bars"}`
+  const exportName =
+    snap.sampleRate > 0 && snap.loopFrames > 0
+      ? exportFileName({ bpm: snap.bpm, bars: snap.bars, loops: exportLoops, loopFrames: snap.loopFrames, sampleRate: snap.sampleRate })
+      : "loopcraft.wav"
+  const exportTitle = snap.exportReady
+    ? `Export WAV: ${exportLoops} loops of ${exportBars} at ${snap.bpm} BPM, ${exportDurationLabel} total`
+    : snap.retiming
+      ? "Wait for the tempo change to finish, then export"
+      : "Export is unavailable until the audio is ready"
+  const exportDisabled = !snap.exportReady || snap.exporting
+
+  const slowerUnavailable = locked || snap.bpm <= MIN_BPM
+  const fasterUnavailable = locked || snap.bpm >= MAX_BPM
 
   const nudge = (dir: number, e: React.MouseEvent) => engine.setBpm(snap.bpm + dir * (e.shiftKey ? 5 : 1))
 
   const share = async () => {
     const code = engine.shareCode()
     const url = `${location.origin}${location.pathname}#s=${code}`
+    const count = engine.getSnapshot().recordedLoops
+    const label = plural(count, "recorded loop", "recorded loops")
     try {
       await navigator.clipboard.writeText(url)
       setCopied(true)
-      onNotice(hasRecordedLoops ? "Link copied without recorded loops — they stay in this browser." : "Link copied. Recorded loops are never included.")
+      onNotice(
+        count > 0
+          ? `Link copied without ${label} — ${count === 1 ? "it stays" : "they stay"} in this browser.`
+          : "Link copied. No recorded loops to include.",
+      )
     } catch {
       location.hash = `s=${code}`
-      onNotice(hasRecordedLoops ? "Couldn't copy. The link is in the address bar, without your recorded loops." : "Couldn't copy. The link is in the address bar.")
+      onNotice(count > 0 ? `Couldn't copy. The link is in the address bar without ${label}.` : "Couldn't copy. The link is in the address bar.")
     }
   }
 
@@ -63,9 +86,9 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
       a.click()
       a.remove()
       setTimeout(() => URL.revokeObjectURL(href), 1000)
-      onNotice(`Exported ${exportLoops} loops · ${exportSeconds}s · ${exportName}`)
-    } catch {
-      onNotice("Export failed. Try again.")
+      onNotice(`Exported ${exportLoops} loops · ${exportDurationLabel} · ${exportName}`)
+    } catch (e) {
+      onNotice(e instanceof Error ? e.message : "Export failed. Try again.")
     }
   }
 
@@ -91,14 +114,26 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
         <Record />
       </button>
 
-      <div className={`${styles.bpm} ${styles.o4}`} role="group" aria-label="Tempo">
+      <div
+        className={`${styles.bpm} ${styles.o4}`}
+        role="group"
+        aria-label="Tempo"
+        aria-disabled={locked || undefined}
+        aria-describedby={locked ? "tempo-lock" : undefined}
+        title={locked ? tempoLockTitle : undefined}
+      >
         <button
           type="button"
           className={styles.step}
           aria-label="Slower"
-          disabled={locked || snap.bpm <= MIN_BPM}
-          title={locked ? tempoLockTitle : undefined}
-          onClick={(e) => nudge(-1, e)}
+          aria-disabled={slowerUnavailable || undefined}
+          aria-describedby={locked ? "tempo-lock" : undefined}
+          title={locked ? tempoLockTitle : snap.bpm <= MIN_BPM ? "Already at the slowest tempo" : undefined}
+          onClick={(e) => {
+            if (locked) onNotice(tempoLockTitle)
+            else if (snap.bpm <= MIN_BPM) onNotice(`Tempo is already at its slowest (${MIN_BPM} BPM).`)
+            else nudge(-1, e)
+          }}
         >
           −
         </button>
@@ -107,18 +142,28 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
           <span className={`mono ${styles.bpmNum}`} title={locked ? tempoLockTitle : undefined}>
             {snap.bpm}
           </span>
-          <span className={styles.label}>BPM</span>
+          <span className={styles.label}>{locked ? "locked" : "BPM"}</span>
         </span>
         <button
           type="button"
           className={styles.step}
           aria-label="Faster"
-          disabled={locked || snap.bpm >= MAX_BPM}
-          title={locked ? tempoLockTitle : undefined}
-          onClick={(e) => nudge(1, e)}
+          aria-disabled={fasterUnavailable || undefined}
+          aria-describedby={locked ? "tempo-lock" : undefined}
+          title={locked ? tempoLockTitle : snap.bpm >= MAX_BPM ? "Already at the fastest tempo" : undefined}
+          onClick={(e) => {
+            if (locked) onNotice(tempoLockTitle)
+            else if (snap.bpm >= MAX_BPM) onNotice(`Tempo is already at its fastest (${MAX_BPM} BPM).`)
+            else nudge(1, e)
+          }}
         >
           +
         </button>
+        {locked && (
+          <span id="tempo-lock" className={styles.tempoLockNote}>
+            Tempo is locked while recorded loops exist. Clear the recorded loops to change it.
+          </span>
+        )}
       </div>
 
       <div
@@ -191,20 +236,35 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
       <button
         type="button"
         className={`${styles.icon} ${styles.o9}`}
-        aria-label={copied ? "Share link copied" : "Copy share link. Recorded loops stay in this browser and are not included."}
+        aria-label={
+          copied
+            ? "Share link copied"
+            : recordedLoops > 0
+              ? `Copy share link. ${recordedLabel} will be left out; ${recordedLoops === 1 ? "it stays" : "they stay"} in this browser.`
+              : "Copy share link. No recorded loops are in this session."
+        }
         title={
           copied
             ? "Share link copied"
-            : "Copies tempo, patterns, samples and mix. Recorded loops stay in this browser and are not included."
+            : recordedLoops > 0
+              ? `Copies tempo, patterns, samples and mix. ${recordedLabel} ${recordedLoops === 1 ? "stays" : "stay"} in this browser and ${recordedLoops === 1 ? "is" : "are"} not included.`
+              : "Copies tempo, patterns, samples and mix. No recorded loops are in this session."
         }
         data-copied={copied || undefined}
         onClick={share}
       >
         {copied ? <Check size={18} /> : <Link />}
       </button>
-      <button type="button" className={`${styles.export} ${styles.o10}`} disabled={snap.exporting} aria-label={exportTitle} title={exportTitle} onClick={exportWav}>
+      <button
+        type="button"
+        className={`${styles.export} ${styles.o10}`}
+        disabled={exportDisabled}
+        aria-label={exportTitle}
+        title={exportTitle}
+        onClick={exportWav}
+      >
         <span className={styles.wavText}>{snap.exporting ? "Rendering…" : "WAV"}</span>
-        {!snap.exporting && <span className={`mono ${styles.wavDur}`}>{exportSeconds}s</span>}
+        {snap.exportReady && !snap.exporting && <span className={`mono ${styles.wavDur}`}>{exportDurationLabel}</span>}
         <Download size={16} />
       </button>
       <span className={styles.break} />

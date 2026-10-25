@@ -3,6 +3,9 @@ import assert from "node:assert/strict"
 import {
   captureWindow,
   dottedEighthSeconds,
+  exportFileName,
+  formatSeconds,
+  loopDurationSeconds,
   loopFrameCount,
   loopOffset,
   loopPhase,
@@ -218,5 +221,35 @@ describe("secondsToFrames / dottedEighthSeconds", () => {
     assert.equal(dottedEighthSeconds(90), 0.5)
     assert.equal(dottedEighthSeconds(120), 0.375)
     assert.ok(Math.abs(dottedEighthSeconds(92) - 0.75 * (60 / 92)) < 1e-12)
+  })
+})
+
+describe("export name and duration", () => {
+  test("duration is the actual frame count, floored to a tenth and never rounded up", () => {
+    const l92 = loopFrameCount(92, 4, 48000)
+    assert.equal(loopDurationSeconds(l92, 48000, 2), (500869 * 2) / 48000)
+    assert.equal(formatSeconds(20.869541666), "20.8s")
+    assert.equal(formatSeconds(2.666666666), "2.6s")
+    assert.equal(formatSeconds(7.5), "7.5s")
+    assert.equal(formatSeconds(0.09), "0s")
+  })
+
+  test("92 -> 180 BPM names both use their own loop length", () => {
+    const at92 = exportFileName({ bpm: 92, bars: 4, loops: 2, loopFrames: loopFrameCount(92, 4, 48000), sampleRate: 48000 })
+    const at180 = exportFileName({ bpm: 180, bars: 4, loops: 2, loopFrames: loopFrameCount(180, 4, 48000), sampleRate: 48000 })
+    assert.equal(at92, "loopcraft-92bpm-4bars-2loops-20.8s.wav")
+    assert.equal(at180, "loopcraft-180bpm-4bars-2loops-10.6s.wav")
+    assert.notEqual(at92, at180)
+  })
+
+  test("1 bar is singular in the name at 180 and 64 BPM", () => {
+    const at180 = exportFileName({ bpm: 180, bars: 1, loops: 2, loopFrames: loopFrameCount(180, 1, 48000), sampleRate: 48000 })
+    const at64 = exportFileName({ bpm: 64, bars: 1, loops: 2, loopFrames: loopFrameCount(64, 1, 48000), sampleRate: 48000 })
+    assert.equal(at180, "loopcraft-180bpm-1bar-2loops-2.6s.wav")
+    assert.equal(at64, "loopcraft-64bpm-1bar-2loops-7.5s.wav")
+    // 64 kHz does not change the musical duration, only the frame count.
+    const at64k = exportFileName({ bpm: 180, bars: 1, loops: 2, loopFrames: loopFrameCount(180, 1, 64000), sampleRate: 64000 })
+    assert.equal(at64k, "loopcraft-180bpm-1bar-2loops-2.6s.wav")
+    assert.equal(exportFileName({ bpm: 120, bars: 2, loops: 1, loopFrames: loopFrameCount(120, 2, 48000), sampleRate: 48000 }), "loopcraft-120bpm-2bars-1loop-4s.wav")
   })
 })

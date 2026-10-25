@@ -80,3 +80,27 @@ export function secondsToFrames(seconds: number, sampleRate: number): number {
 export function dottedEighthSeconds(bpm: number): number {
   return 45 / bpm
 }
+
+/** Actual duration of `loops` passes at integer loop length `loopFrames`. */
+export function loopDurationSeconds(loopFrames: number, sampleRate: number, loops = 1): number {
+  if (sampleRate <= 0 || loopFrames <= 0 || loops <= 0) return 0
+  return (loopFrames * loops) / sampleRate
+}
+
+/**
+ * Duration for names and labels: floored to a tenth of a second, so it never promises a file longer
+ * than the rendered audio. 20.8695 s -> "20.8s"; 2.6667 s -> "2.6s"; 7.5 s -> "7.5s".
+ */
+export function formatSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s"
+  const tenths = Math.floor(seconds * 10)
+  return tenths % 10 === 0 ? `${tenths / 10}s` : `${(tenths / 10).toFixed(1)}s`
+}
+
+/** WAV download name derived from the actual loop frame count, never from a pending bpm/bars edit. */
+export function exportFileName(input: { bpm: number; bars: number; loops: number; loopFrames: number; sampleRate: number }): string {
+  const duration = formatSeconds(loopDurationSeconds(input.loopFrames, input.sampleRate, input.loops))
+  const bars = `${input.bars}${input.bars === 1 ? "bar" : "bars"}`
+  const loops = `${input.loops}loop${input.loops === 1 ? "" : "s"}`
+  return `loopcraft-${input.bpm}bpm-${bars}-${loops}-${duration}.wav`
+}

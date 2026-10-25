@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react"
 import { chordAt, chordSymbol, formatNoteName, harmonicFunction, romanNumeral, slotInLoop } from "@/lib/harmony/theory"
 import { suggestNext } from "@/lib/harmony/suggest"
 import type { ChordSuggestion, Mode } from "@/lib/harmony/types"
@@ -75,13 +75,16 @@ export default function ChordLane() {
 
   const index = open !== null && open < chords.length ? open : null
 
-  const close = (restoreFocus: boolean) => {
-    const i = open
-    setOpen(null)
-    setDraft("")
-    setError(false)
-    if (restoreFocus && i !== null) slotRefs.current[i]?.focus()
-  }
+  const close = useCallback(
+    (restoreFocus: boolean) => {
+      const i = open
+      setOpen(null)
+      setDraft("")
+      setError(false)
+      if (restoreFocus && i !== null) slotRefs.current[i]?.focus()
+    },
+    [open],
+  )
 
   // Outside click closes (the slot itself toggles via its own onClick).
   useEffect(() => {
@@ -89,13 +92,11 @@ export default function ChordLane() {
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node | null
       if (!t || dialogRef.current?.contains(t) || slotRefs.current[index]?.contains(t)) return
-      setOpen(null)
-      setDraft("")
-      setError(false)
+      close(false)
     }
     document.addEventListener("pointerdown", onDown)
     return () => document.removeEventListener("pointerdown", onDown)
-  }, [index])
+  }, [index, close])
 
   // Focus the first suggestion when the popover opens (not the dialog container), close on Escape
   // wherever focus is, and gate the global single-key shortcuts while it is up.
@@ -108,17 +109,14 @@ export default function ChordLane() {
       if (e.key !== "Escape") return
       e.preventDefault()
       e.stopPropagation()
-      setOpen(null)
-      setDraft("")
-      setError(false)
-      slotRefs.current[index]?.focus()
+      close(true)
     }
     document.addEventListener("keydown", onKey, true)
     return () => {
       setModalOpen(false)
       document.removeEventListener("keydown", onKey, true)
     }
-  }, [index])
+  }, [index, close])
 
   const suggestions = useMemo(() => {
     if (index === null) return []
@@ -129,6 +127,12 @@ export default function ChordLane() {
   }, [index, chords, key])
 
   const onDialogKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // A held Enter that opened the popover must not repeat into the newly focused suggestion.
+    if (e.repeat && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
     if (e.key === "Tab") {
       const items = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>("button, input") ?? []).filter((el) => !el.hasAttribute("disabled"))
       if (!items.length) return
@@ -203,6 +207,12 @@ export default function ChordLane() {
               aria-expanded={index === i}
               disabled={outside}
               title={outside ? `Outside the ${bars}-bar loop. Lengthen the loop to use this chord.` : undefined}
+              onKeyDown={(e) => {
+                if (e.repeat && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }
+              }}
               onClick={() => {
                 if (index === i) close(true)
                 else {

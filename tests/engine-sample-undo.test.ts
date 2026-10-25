@@ -7,6 +7,25 @@ import { findSample, keyLabel } from "../lib/samples/library.ts"
 
 const track = (e: LoopEngine, id: string) => e.getSnapshot().tracks.find((t) => t.id === id)
 
+/** Node has no Web Audio; install a buffer through the engine's own map so the real removal path keeps it. */
+function installBuffer(e: LoopEngine, id = "loop-a", length = e.getSnapshot().loopFrames): AudioBuffer {
+  const fake = {
+    length,
+    numberOfChannels: 1,
+    sampleRate: 48000,
+    getChannelData: () => new Float32Array(length).fill(0.4),
+  } as unknown as AudioBuffer
+  const internals = e as unknown as {
+    buffers: Map<string, AudioBuffer>
+    patchTrack: (id: string, patch: object) => void
+    emit: () => void
+  }
+  internals.buffers.set(id, fake)
+  internals.patchTrack(id, { hasAudio: true, peaks: [0.4] })
+  internals.emit()
+  return fake
+}
+
 describe("sample add undo", () => {
   test("add then undo removes the track and restores the exact document", () => {
     const e = new LoopEngine()
@@ -151,23 +170,9 @@ describe("audio removal undo", () => {
 
   test("undoing a recorded-loop removal restores its buffer and re-locks tempo", () => {
     const e = new LoopEngine()
-    const fake = {
-      length: 96,
-      numberOfChannels: 1,
-      sampleRate: 48000,
-      getChannelData: () => new Float32Array(96).fill(0.4),
-    } as unknown as AudioBuffer
-    // Node has no Web Audio; install the buffer through the engine's own map so the removal path
-    // (not a mocked method) is what keeps it alive.
-    const internals = e as unknown as {
-      buffers: Map<string, AudioBuffer>
-      patchTrack: (id: string, patch: object) => void
-      emit: () => void
-    }
-    internals.buffers.set("loop-a", fake)
-    internals.patchTrack("loop-a", { hasAudio: true, peaks: [0.4] })
-    internals.emit()
+    const fake = installBuffer(e)
     assert.equal(e.getSnapshot().tempoLocked, true)
+    assert.equal(e.getSnapshot().recordedLoops, 1)
 
     e.removeTrack("loop-a")
     assert.equal(e.debug.buffer("loop-a"), null)
@@ -183,6 +188,114 @@ describe("audio removal undo", () => {
     e.redo()
     assert.equal(e.debug.buffer("loop-a"), null)
     assert.equal(e.getSnapshot().tempoLocked, false)
+  })
+})
+
+describe("audio undo across a retime", () => {
+  test("changing the loop length after a removal drops the stale buffer history", () => {
+    const e = new LoopEngine()
+    installBuffer(e)
+    e.removeTrack("loop-a")
+    assert.equal(e.getSnapshot().canUndo, true)
+
+    e.setBars(2)
+    assert.equal(e.getSnapshot().canUndo, false, "buffer history must be purged synchronously")
+    assert.match(e.getSnapshot().message ?? "", /cleared for the new loop length/)
+    e.undo()
+    assert.equal(track(e, "loop-a"), undefined)
+    assert.equal(e.debug.buffer("loop-a"), null)
+    assert.equal(e.getSnapshot().tempoLocked, false)
+  })
+
+  test("changing the tempo after a removal also drops the stale buffer history", () => {
+    const e = new LoopEngine()
+    installBuffer(e)
+    e.removeTrack("loop-a")
+    e.setBpm(180)
+    assert.equal(e.getSnapshot().canUndo, false)
+    assert.match(e.getSnapshot().message ?? "", /cleared for the new tempo/)
+    e.undo()
+    assert.equal(track(e, "loop-a"), undefined)
+    assert.equal(e.debug.buffer("loop-a"), null)
+  })
+
+  test("a failed retime cannot resurrect audio removed before the length change", () => {
+    const e = new LoopEngine()
+    installBuffer(e, "loop-a", 48000)
+    // Simulate a live context at the old length, then a retime that never reaches its success path.
+    const internals = e as unknown as {
+      ctx: { sampleRate: number; state: string } | null
+      audioReady: boolean
+      L: number
+      loopBars: number
+      retiming: boolean
+      retimeQueued: boolean
+      enqueueRetime: () => void
+      emit: () => void
+    }
+    internals.ctx = { sampleRate: 48000, state: "running" }
+    internals.audioReady = true
+    internals.L = 48000
+    internals.loopBars = 4
+    internals.enqueueRetime = () => {
+      internals.retiming = false
+      internals.retimeQueued = false
+    }
+
+    e.removeTrack("loop-a")
+    assert.equal(e.debug.buffer("loop-a"), null)
+    e.setBars(2)
+    // The retime never rendered: bpm/bars and L now disagree, but the old audio must stay gone.
+    assert.equal(e.getSnapshot().exportReady, false)
+    assert.equal(e.getSnapshot().canUndo, false)
+    e.undo()
+    assert.equal(track(e, "loop-a"), undefined)
+    assert.equal(e.debug.buffer("loop-a"), null)
+  })
+
+  test("a buffer at a different loop length is never restored, and says why", () => {
+    const e = new LoopEngine()
+    installBuffer(e, "loop-a", 96) // engine L is still 1, as it is before audio starts
+    e.removeTrack("loop-a")
+    e.undo()
+    assert.equal(track(e, "loop-a"), undefined)
+    assert.equal(e.debug.buffer("loop-a"), null)
+    assert.match(e.getSnapshot().message ?? "", /earlier loop length/)
+    assert.equal(e.getSnapshot().canUndo, false)
+    assert.equal(e.getSnapshot().canRedo, false)
+  })
+})
+
+describe("undo status and track cap", () => {
+  test("undo and redo replace the removal message instead of leaving it stale", () => {
+    const e = new LoopEngine()
+    const id = e.addAudioTrack()!
+    e.removeTrack(id)
+    assert.match(e.getSnapshot().message ?? "", /Undo restores it/)
+    e.undo()
+    assert.equal(e.getSnapshot().message, "Undone.")
+    e.redo()
+    assert.equal(e.getSnapshot().message, "Redone.")
+  })
+
+  test("a cap-blocked undo keeps its step and explains, then succeeds after a slot is freed", () => {
+    const e = new LoopEngine()
+    e.removeTrack("loop-a")
+    while (e.getSnapshot().tracks.length < MAX_TRACKS) assert.ok(e.addAudioTrack())
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    const beforeTracks = e.getSnapshot().tracks.length
+
+    e.undo()
+    assert.equal(track(e, "loop-a"), undefined)
+    assert.equal(e.getSnapshot().tracks.length, beforeTracks)
+    assert.equal(e.getSnapshot().canUndo, true, "a cap-blocked step must remain undoable")
+    assert.match(e.getSnapshot().message ?? "", /Free a track slot/)
+
+    // Freeing a slot with a synth track has no undo step of its own, so the same removal is on top.
+    e.removeTrack("keys")
+    e.undo()
+    assert.equal(track(e, "loop-a")?.kind, "audio")
+    assert.equal(e.getSnapshot().message, "Undone.")
   })
 })
 

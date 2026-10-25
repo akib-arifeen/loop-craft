@@ -51,6 +51,9 @@ export default function LoopCraft() {
       if (e.key === " ") {
         // Space is the transport key. Before the audio starts, leave it to the start button.
         if (s.status !== "ready" && s.status !== "suspended") return
+        // ARIA radio/switch controls own Space, as their users expect; ordinary buttons do not.
+        const el = e.target as HTMLElement | null
+        if (el?.closest?.('[role="radio"], [role="switch"]')) return
         // Always consume Space here: a focused button must not also activate on keyup. Keyboard
         // users activate buttons with Enter instead, so Space cannot mute, remove or record by
         // accident when they asked for play/pause.
