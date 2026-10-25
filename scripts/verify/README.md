@@ -42,10 +42,10 @@ looks like), no horizontal page overflow, tempo steps ≥44 px (≥40 px below 3
 three-digit tempo needs the room) and a tempo numeral that is not clipped. It restores the tempo and
 throws on failure: `PASS {...}` means the header survived a three-digit tempo at that width.
 
-## Irreversible-removal confirm target (`remove_confirm_check.js`)
+## Guarded-removal confirm target (`remove_confirm_check.js`)
 
-One viewport per run, on a freshly loaded demo session (the check removes Drums, so reload before the
-next size):
+One viewport per run, on a freshly loaded demo session (the check removes Drums, then Undo puts it
+back, so reload before the next size):
 
 ```bash
 agent-browser open http://localhost:3102
@@ -63,7 +63,27 @@ must only arm, the point must still hit the armed button (Clear steps is hidden 
 header cannot wrap and slide the confirmation out from under the pointer), the second tap must remove
 the track, and the drum pattern must never be cleared. It also waits out the 3 s arming timeout and
 asserts Clear comes back with the pattern unchanged. With Clear left visible the same check fails with
-*"the tap point hits \"Clear steps\" instead of the confirm button"*.
+*"the tap point hits \"Clear steps\" instead of the confirm button"*. After the removal it asserts the
+status line ("Track removed. Undo restores it.") and that Undo brings the Drums track, pattern, slot
+and selection back with "Undone.".
+
+## Built-in track cap recovery (`cap_recovery_check.js`)
+
+One viewport per run, on a freshly started demo (it fills the cap, so reload before the next size):
+
+```bash
+agent-browser open http://localhost:3102
+agent-browser click '[role="dialog"] button'      # start the demo and render the tracks
+agent-browser set viewport 390 844
+agent-browser eval --stdin < cap_recovery_check.js
+```
+
+It fills the eight-track cap with empty loops, removes the built-in Keys track at that cap, and
+refills the slot with another empty loop. Undo must then stay on the stack with "Free a track slot,
+then undo again." and the count must stay at eight. It frees the slot by removing the filler—an
+undoable removal—and asserts the waiting step applies first: Keys returns with its exact state,
+rendered buffer, original slot and selection, the freeing removal remains undoable, and a further
+Undo is cap-blocked rather than bypassing the cap. Run it at 800×520, 390×844 and 320×568.
 
 ## Fake microphone (`make_tone.py`)
 `python3 make_tone.py tone.wav` writes a 48 kHz mono beep file (80 ms every 500 ms). Launch Chromium

@@ -1,4 +1,4 @@
-// Confirm-target regression for the irreversible synth removal, at the viewport under test:
+// Confirm-target regression for the guarded synth removal, at the viewport under test:
 //   agent-browser open http://localhost:3102
 //   agent-browser click '[role="dialog"] button'      # start the demo; the track list is inert behind the gate
 //   agent-browser set viewport 800 520
@@ -9,7 +9,8 @@
 // first tap only arms, that same point still hits the armed button (so the target cannot slide out
 // from under the pointer onto Clear steps), the second tap removes the track, and the drum pattern was
 // never cleared. Between the taps it also waits out the 3 s arming timeout and checks that Clear comes
-// back and nothing changed. Throws on failure.
+// back and nothing changed. After the removal it asserts the status message and that Undo restores the
+// exact pattern (the built-in track is one undo step). Throws on failure.
 (async () => {
   const app = window.__loopcraft
   if (!app) throw new Error("window.__loopcraft is missing: load the app before running this check")
@@ -18,7 +19,7 @@
   const drums = () => app.getSnapshot().tracks.find((t) => t.id === "drums")
   const clearButton = () => [...document.querySelectorAll("button")].find((b) => /^(Clear steps|Clear loop)$/.test(b.textContent.trim()))
   const headHeight = () => {
-    const rm = byLabel(/^Remove track$/) ?? byLabel(/^Remove .+ for good$/)
+    const rm = byLabel(/^Remove track$/) ?? byLabel(/^Confirm remove track$/)
     return rm ? +rm.closest("div").getBoundingClientRect().height.toFixed(1) : null
   }
   // What a real pointer at (x, y) would activate: the deepest element there, then a normal tap sequence.
@@ -63,22 +64,26 @@
   tap(point.x, point.y)
   await wait(300)
 
-  const armed = byLabel(/^Remove .+ for good$/)
+  const armed = byLabel(/^Confirm remove track$/)
   const clear = clearButton()
   if (!armed) fails.push("the first tap did not arm the removal")
   if (!drums()) fails.push("the first tap removed the track instead of only arming")
   if (JSON.stringify(drums()?.drumPattern) !== patternBefore) fails.push("the first tap changed the drum pattern")
   if (!clear || getComputedStyle(clear).display !== "none") fails.push("Clear steps is still shown while the removal is armed")
   const armedBox = armed ? armed.getBoundingClientRect() : null
+  const describedBy = armed?.getAttribute("aria-describedby")
+  const warning = describedBy ? document.getElementById(describedBy)?.textContent || "" : ""
   facts.armed = {
     headHeight: headHeight(),
     armedBox: armedBox ? [armedBox.left, armedBox.top, armedBox.right, armedBox.bottom].map((n) => +n.toFixed(1)) : null,
     clearDisplay: clear ? getComputedStyle(clear).display : "absent",
+    warning,
     pointHitsArmed: armed ? hits(armed, point.x, point.y) : false,
     pointInsideArmedBox: armedBox
       ? point.x >= armedBox.left && point.x <= armedBox.right && point.y >= armedBox.top && point.y <= armedBox.bottom
       : false,
   }
+  if (armed && !/Undo/.test(warning)) fails.push(`the removal warning does not mention Undo: "${warning}"`)
   if (armed && !facts.armed.pointHitsArmed) {
     const at = document.elementFromPoint(point.x, point.y)
     fails.push(`after arming, the tap point hits "${(at?.textContent || at?.tagName || "nothing").trim()}" instead of the confirm button`)
@@ -101,7 +106,7 @@
   // Same coordinates again: arm, then confirm. Both taps are ordinary clicks at one point.
   tap(point.x, point.y)
   await wait(300)
-  if (!byLabel(/^Remove .+ for good$/)) fails.push("the second run did not arm again")
+  if (!byLabel(/^Confirm remove track$/)) fails.push("the second run did not arm again")
   const hit2 = document.elementFromPoint(point.x, point.y)
   facts.secondTapTarget = (hit2.textContent || "").trim() || hit2.tagName
   tap(point.x, point.y)
@@ -113,10 +118,31 @@
     drumsGone: !after.tracks.some((t) => t.id === "drums"),
     emptyDrumPatternLeft: after.tracks.some((t) => t.kind === "drums"),
     message: after.message,
+    canUndo: after.canUndo,
   }
   if (!facts.afterConfirm.drumsGone) fails.push("two taps at one point did not remove the Drums track")
   if (after.tracks.length !== 4) fails.push(`expected 4 tracks after the removal, got ${after.tracks.length}`)
-  if (!/Drums removed\. This can.t be undone\./.test(after.message || "")) fails.push(`the status message was "${after.message}"`)
+  if (!/Track removed\. Undo restores it\./.test(after.message || "")) fails.push(`the status message was "${after.message}"`)
+  if (!after.canUndo) fails.push("the built-in removal did not leave an undo step")
+
+  // Undo is the contract: the exact pattern, slot and selection come back.
+  app.undo()
+  await wait(250)
+  const undone = app.getSnapshot()
+  facts.afterUndo = {
+    drumsBack: undone.tracks.some((t) => t.id === "drums"),
+    tracks: undone.tracks.length,
+    patternRestored: JSON.stringify(drums()?.drumPattern) === patternBefore,
+    selected: undone.selectedTrackId,
+    message: undone.message,
+    canRedo: undone.canRedo,
+  }
+  if (!facts.afterUndo.drumsBack) fails.push("Undo did not restore the removed Drums track")
+  if (undone.tracks.length !== 5) fails.push(`expected 5 tracks after Undo, got ${undone.tracks.length}`)
+  if (!facts.afterUndo.patternRestored) fails.push("Undo did not restore the exact drum pattern")
+  if (undone.selectedTrackId !== "drums") fails.push(`Undo selected "${undone.selectedTrackId}" instead of drums`)
+  if (undone.message !== "Undone.") fails.push(`the Undo message was "${undone.message}"`)
+  if (!undone.canRedo) fails.push("Undo did not leave a redo step")
 
   const summary = JSON.stringify({ viewport: `${innerWidth}x${innerHeight}`, point: [+point.x.toFixed(1), +point.y.toFixed(1)], facts })
   if (fails.length) throw new Error(fails.join("; ") + " | " + summary)

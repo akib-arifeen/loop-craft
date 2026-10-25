@@ -97,13 +97,14 @@ function NameEditor({ track }: { track: TrackState }) {
 function RemoveButton({ track }: { track: TrackState }) {
   const { engine } = useEngine()
   const [confirming, setConfirming] = useState(false)
-  const undoable = track.kind === "audio" || track.kind === "sample"
-  // A recorded loop, a drum pattern and a bass or keys part are the only things one click can lose
-  // for good: recorded audio because it is a performance, and the built-in synth tracks because this
-  // page has no way to add one back. They ask twice; the mix-only and empty tracks do not.
-  const guarded = track.kind === "drums" || track.kind === "bass" || track.kind === "keys" || (track.kind === "audio" && track.hasAudio)
-  // The irreversible case states its warning on the page itself, not only in a title: touch and AT never
-  // see a title. aria-describedby carries the same words before and after arming.
+  // Every removal is one undo step. A built-in synth track and a recorded loop still ask twice: this
+  // page cannot add a synth track back any other way, and a recording is a performance. The mix-only
+  // and empty tracks do not.
+  const builtIn = track.kind === "drums" || track.kind === "bass" || track.kind === "keys"
+  const recorded = track.kind === "audio" && track.hasAudio
+  const guarded = builtIn || recorded
+  // The warning is stated on the page itself, not only in a title: touch and AT never see a title.
+  // aria-describedby carries the same words before and after arming.
   const warnId = `remove-warning-${track.id}`
 
   useEffect(() => {
@@ -112,19 +113,15 @@ function RemoveButton({ track }: { track: TrackState }) {
     return () => window.clearTimeout(id)
   }, [confirming])
 
-  const title = undoable
-    ? confirming
+  const title = confirming
+    ? recorded
       ? "Remove it. Undo restores the whole track, including recorded audio."
-      : `Remove ${track.name}. Undo restores it.`
-    : guarded
-      ? confirming
-        ? "Remove it. This can't be undone."
-        : `Remove ${track.name}. This can't be undone, and the synth track can't be added back from this page.`
-      : confirming
-        ? "Remove it."
-        : `Remove ${track.name}.`
-
-  const label = undoable ? "Confirm remove track" : `Remove ${track.name} for good`
+      : "Remove it. Undo restores it."
+    : builtIn
+      ? `Remove ${track.name}. Undo restores it, but this page can't add a synth track back.`
+      : recorded
+        ? `Remove ${track.name}. Undo restores the whole track, including recorded audio.`
+        : `Remove ${track.name}. Undo restores it.`
 
   return (
     <>
@@ -132,20 +129,20 @@ function RemoveButton({ track }: { track: TrackState }) {
         type="button"
         className={styles.remove}
         data-confirm={confirming}
-        data-danger={!undoable && confirming ? "true" : undefined}
-        aria-label={confirming ? label : "Remove track"}
-        aria-describedby={!undoable ? warnId : undefined}
+        data-danger={builtIn && confirming ? "true" : undefined}
+        aria-label={confirming ? "Confirm remove track" : "Remove track"}
+        aria-describedby={builtIn ? warnId : undefined}
         title={title}
         onClick={() => {
           if (guarded && !confirming) setConfirming(true)
           else engine.removeTrack(track.id)
         }}
       >
-        {confirming ? (undoable ? "Remove?" : "Remove for good?") : <X size={16} />}
+        {confirming ? "Remove?" : <X size={16} />}
       </button>
-      {!undoable && (
+      {builtIn && (
         <span id={warnId} className={styles.warn}>
-          Removing {track.name} can&rsquo;t be undone, and this synth track can&rsquo;t be added back from this page.
+          Removing {track.name} can be undone from the Undo button, but this synth track can&rsquo;t be added back from this page.
         </span>
       )}
     </>

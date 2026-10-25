@@ -92,17 +92,22 @@ interface UndoEntry {
   fields?: string[]
   /** Mix entries only: performance.now() when last updated. */
   at?: number
-  /** Whole-track add/remove entries (sample or audio): the track (null when absent), its slot and the selection on each side. */
+  /** Whole-track add/remove entries (any kind): the track (null when absent), its slot and the selection on each side. */
   track?: TrackEntry
+  /** A cap-blocked whole-track step: keep it for the retry that a freed slot allows. */
+  blocked?: boolean
 }
-/** Whole-track state for a sample/audio add or remove step. */
+/** Whole-track state for an add or remove step. */
 interface TrackEntry {
   before: TrackState | null
   after: TrackState | null
   index: number
   selectedBefore: string | null
   selectedAfter: string | null
-  /** An audio track's recorded buffer: the removal step keeps it alive so Undo can restore the loop. */
+  /**
+   * The track's audio at removal: a recorded loop, or a built-in track's rendered buffer. Keeping it
+   * lets Undo restore the exact sound instead of waiting for a fresh render.
+   */
   buffer?: AudioBuffer | null
 }
 /** Why a whole-track undo/redo step could not be applied. */
@@ -1042,22 +1047,19 @@ export class LoopEngine implements LoopEngineApi {
     if (this.selectedTrackId === id) {
       this.selectedTrackId = this.tracks.length ? this.tracks[Math.min(idx, this.tracks.length - 1)].id : null
     }
-    // A sample or a loop track is a whole item the user can lose in one click, so its removal is
-    // one undo step (with the recorded buffer for audio). The built-in synth tracks keep their
-    // existing behaviour: removing one drops its own mix history.
-    const undoable = t.kind === "sample" || t.kind === "audio"
-    if (undoable) {
-      this.pushUndo({
-        trackId: id,
-        before: {},
-        after: {},
-        track: { before: cloneTrack(t), after: null, index: idx, selectedBefore, selectedAfter: this.selectedTrackId, buffer },
-      })
-    }
+    // Every track kind is one whole item the user can lose in one click, so its removal is one
+    // undo step with the recorded or rendered buffer. Removing the track drops its older mix
+    // history; only the removal step inverses the removal itself.
+    this.pushUndo({
+      trackId: id,
+      before: {},
+      after: {},
+      track: { before: cloneTrack(t), after: null, index: idx, selectedBefore, selectedAfter: this.selectedTrackId, buffer },
+    })
     this.updateAllChannels()
     this.emit()
-    // Either way the live status region says what happened: a removal with no undo step must not be silent.
-    this.setMessage(undoable ? "Track removed. Undo restores it." : `${t.name} removed. This can't be undone.`)
+    // The live status region says what happened instead of leaving the removal silent.
+    this.setMessage("Track removed. Undo restores it.")
   }
   private disposeTrackAudio(id: string): void {
     if (this.ctx) this.stopVoice(id, this.ctx.currentTime, true)
@@ -1128,6 +1130,17 @@ export class LoopEngine implements LoopEngineApi {
   }
   private pushUndo(entry: UndoEntry): void {
     this.undoStack.push(entry)
+    // A removal frees a track slot, which is exactly what a cap-blocked step was waiting for. Keep
+    // that waiting step on top so the next Undo can apply it; the new removal stays below it and
+    // both steps survive. Without this, every removal in a full session would bury the retry.
+    const n = this.undoStack.length
+    if (entry.track?.after === null) {
+      const waiting = n >= 2 ? this.undoStack[n - 2] : undefined
+      if (waiting?.blocked) {
+        this.undoStack[n - 2] = entry
+        this.undoStack[n - 1] = waiting
+      }
+    }
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift()
     this.redoStack = []
     while (this.undoStack.length > 0 && this.historyFrames() > MAX_UNDO_FRAMES) this.undoStack.shift()
@@ -1144,12 +1157,19 @@ export class LoopEngine implements LoopEngineApi {
     for (const b of seen) total += b.length
     return total
   }
-  /** After a retime, drop every history entry that references an AudioBuffer (recorded at the old length/tempo; it could never be applied). Returns how many steps were dropped. */
+  /** After a retime, drop recorded-buffer history (its audio could never be applied). A built-in track's rendered buffer is stale too, but its state is not, so keep that removal step and let Undo re-render it. Returns how many steps were dropped. */
   private purgeHistory(): number {
-    const hasBuffer = (e: UndoEntry) => !!e.before.buffer || !!e.after.buffer || !!e.track?.buffer
     const before = this.undoStack.length + this.redoStack.length
-    this.undoStack = this.undoStack.filter((e) => !hasBuffer(e))
-    this.redoStack = this.redoStack.filter((e) => !hasBuffer(e))
+    const hasBuffer = (e: UndoEntry) => !!e.before.buffer || !!e.after.buffer || !!e.track?.buffer
+    const keep = (e: UndoEntry): UndoEntry | null => {
+      if (!hasBuffer(e)) return e
+      const track = e.track
+      const kind = track?.before?.kind ?? track?.after?.kind
+      if (track && kind !== "audio") return track.buffer ? { ...e, track: { ...track, buffer: null } } : e
+      return null
+    }
+    this.undoStack = this.undoStack.map(keep).filter((e): e is UndoEntry => e !== null)
+    this.redoStack = this.redoStack.map(keep).filter((e): e is UndoEntry => e !== null)
     return before - (this.undoStack.length + this.redoStack.length)
   }
   private doToggleStep(id: string, voice: DrumVoice, step: number): void {
@@ -1262,6 +1282,8 @@ export class LoopEngine implements LoopEngineApi {
    * Undo/redo for one whole-track add/remove step. Returns why it could not apply, so the caller can
    * keep a cap-blocked step for a retry instead of dropping it. A recorded buffer is only restored
    * when its frame length matches the current loop; a retime may never put old audio on the new grid.
+   * A built-in track's rendered buffer is replaceable from its state, so a stale one falls back to a
+   * fresh render rather than losing the step.
    */
   private applyTrackEntry(e: UndoEntry, side: "before" | "after"): TrackApplyResult {
     const entry = e.track!
@@ -1272,18 +1294,20 @@ export class LoopEngine implements LoopEngineApi {
       this.disposeTrackAudio(e.trackId)
       this.tracks = this.tracks.filter((t) => t.id !== e.trackId)
     } else {
-      if (entry.buffer && (this.retiming || entry.buffer.length !== this.L)) return "stale-buffer"
+      const kind = entry.before?.kind ?? entry.after?.kind
+      const bufferStale = !!entry.buffer && (this.retiming || entry.buffer.length !== this.L)
+      if (bufferStale && kind === "audio") return "stale-buffer"
       if (existing) return "conflict"
       if (this.tracks.length >= MAX_TRACKS) return "cap"
       const t = cloneTrack(target)
-      if (!entry.buffer) {
+      if (!entry.buffer || bufferStale) {
         t.hasAudio = false
         t.peaks = []
       }
       const at = clamp(entry.index, 0, this.tracks.length)
       this.tracks = [...this.tracks.slice(0, at), t, ...this.tracks.slice(at)]
       this.makeChannel(t)
-      if (entry.buffer) this.applyBuffer(t.id, entry.buffer)
+      if (entry.buffer && !bufferStale) this.applyBuffer(t.id, entry.buffer)
       else this.enqueueRender(t.id)
     }
     this.selectedTrackId = side === "before" ? entry.selectedBefore : entry.selectedAfter
@@ -1309,10 +1333,13 @@ export class LoopEngine implements LoopEngineApi {
     }
     const result = this.applyUndoEntry(e, "before")
     if (result === "applied") {
+      e.blocked = false
       this.redoStack.push(e)
       this.setMessage("Undone.")
     } else if (result === "cap") {
-      // Keep the step at the top: once a slot is free, the same Undo can apply it.
+      // Keep the step at the top: once a slot is free, the same Undo can apply it. A removal that
+      // frees a slot is placed below this step, so the retry is not buried by it.
+      e.blocked = true
       this.undoStack.push(e)
       this.noteApplyFailure(result, "undo")
     } else {
@@ -1329,9 +1356,11 @@ export class LoopEngine implements LoopEngineApi {
     }
     const result = this.applyUndoEntry(e, "after")
     if (result === "applied") {
+      e.blocked = false
       this.undoStack.push(e)
       this.setMessage("Redone.")
     } else if (result === "cap") {
+      e.blocked = true
       this.redoStack.push(e)
       this.noteApplyFailure(result, "redo")
     } else {

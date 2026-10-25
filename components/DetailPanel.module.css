@@ -88,7 +88,7 @@
   color: var(--color-ink);
 }
 
-/* Armed irreversible removal: red edge, tinted fill and red text, so the danger is visible on touch
+/* Armed guarded removal: red edge, tinted fill and red text, so the danger is visible on touch
    where the title never shows. The text colour is mixed toward ink to stay legible on the tint. */
 .remove[data-danger="true"] {
   background: color-mix(in oklch, var(--color-rec) 16%, var(--color-paper-3));
@@ -96,7 +96,7 @@
   color: color-mix(in oklch, var(--color-rec) 72%, var(--color-ink));
 }
 
-/* While the irreversible removal is armed, Clear gives way. It is the widest thing beside the button,
+/* While a guarded removal is armed, Clear gives way. It is the widest thing beside the button,
    so keeping it would wrap the head and slide the confirmation out from under the tap that armed it —
    a second tap at the same point would land on Clear and wipe the pattern instead. Hiding it keeps the
    head on one line and the armed button over the spot that was just tapped; the rule stops applying
@@ -105,7 +105,7 @@
   display: none;
 }
 
-/* The irreversibility warning itself, for screen readers and as the button's description. */
+/* The guarded-removal warning itself, for screen readers and as the button's description. */
 .warn {
   position: absolute;
   width: 1px;
