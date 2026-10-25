@@ -92,16 +92,18 @@ interface UndoEntry {
   fields?: string[]
   /** Mix entries only: performance.now() when last updated. */
   at?: number
-  /** Sample add/remove entries: the whole track (null when absent), its slot and the selection on each side. */
+  /** Whole-track add/remove entries (sample or audio): the track (null when absent), its slot and the selection on each side. */
   track?: TrackEntry
 }
-/** Whole-track state for a sample add/remove step. */
+/** Whole-track state for a sample/audio add or remove step. */
 interface TrackEntry {
   before: TrackState | null
   after: TrackState | null
   index: number
   selectedBefore: string | null
   selectedAfter: string | null
+  /** An audio track's recorded buffer: the removal step keeps it alive so Undo can restore the loop. */
+  buffer?: AudioBuffer | null
 }
 const MIX_COALESCE_MS = 600
 const mixOf = (t: TrackState): MixState => ({
@@ -1002,6 +1004,7 @@ export class LoopEngine implements LoopEngineApi {
     this.clearAudition()
     if (this.pending?.trackId === id) this.doCancelRecord()
     const selectedBefore = this.selectedTrackId
+    const buffer = this.buffers.get(id) ?? null
     this.disposeTrackAudio(id)
     const idx = this.tracks.findIndex((x) => x.id === id)
     this.tracks = this.tracks.filter((x) => x.id !== id)
@@ -1009,17 +1012,21 @@ export class LoopEngine implements LoopEngineApi {
     if (this.selectedTrackId === id) {
       this.selectedTrackId = this.tracks.length ? this.tracks[Math.min(idx, this.tracks.length - 1)].id : null
     }
-    // Only a sample track's removal is undoable; removing any other kind keeps its existing behaviour.
-    if (t.kind === "sample") {
+    // A sample or a loop track is a whole item the user can lose in one click, so its removal is
+    // one undo step (with the recorded buffer for audio). The built-in synth tracks keep their
+    // existing behaviour: removing one drops its own mix history.
+    const undoable = t.kind === "sample" || t.kind === "audio"
+    if (undoable) {
       this.pushUndo({
         trackId: id,
         before: {},
         after: {},
-        track: { before: cloneTrack(t), after: null, index: idx, selectedBefore, selectedAfter: this.selectedTrackId },
+        track: { before: cloneTrack(t), after: null, index: idx, selectedBefore, selectedAfter: this.selectedTrackId, buffer },
       })
     }
     this.updateAllChannels()
     this.emit()
+    if (undoable) this.setMessage("Track removed. Undo restores it.")
   }
   private disposeTrackAudio(id: string): void {
     if (this.ctx) this.stopVoice(id, this.ctx.currentTime, true)
@@ -1032,7 +1039,7 @@ export class LoopEngine implements LoopEngineApi {
     this.undoStack = this.undoStack.filter((e) => e.trackId !== id)
     this.redoStack = this.redoStack.filter((e) => e.trackId !== id)
   }
-  /** Import/share replace the whole synth/sample set; an old sample add/remove step can't apply to the new document. */
+  /** Import/share replace the whole synth/sample set; an old sample/audio add or removal step can't apply to the new document. */
   private dropTrackEntries(): void {
     this.undoStack = this.undoStack.filter((e) => !e.track)
     this.redoStack = this.redoStack.filter((e) => !e.track)
@@ -1100,6 +1107,7 @@ export class LoopEngine implements LoopEngineApi {
     for (const e of [...this.undoStack, ...this.redoStack]) {
       if (e.before.buffer) seen.add(e.before.buffer)
       if (e.after.buffer) seen.add(e.after.buffer)
+      if (e.track?.buffer) seen.add(e.track.buffer)
     }
     let total = 0
     for (const b of seen) total += b.length
@@ -1107,7 +1115,7 @@ export class LoopEngine implements LoopEngineApi {
   }
   /** After a retime, drop every history entry that references an AudioBuffer (recorded at the old length/tempo; it could never be applied). */
   private purgeHistory(): void {
-    const hasBuffer = (e: UndoEntry) => !!e.before.buffer || !!e.after.buffer
+    const hasBuffer = (e: UndoEntry) => !!e.before.buffer || !!e.after.buffer || !!e.track?.buffer
     this.undoStack = this.undoStack.filter((e) => !hasBuffer(e))
     this.redoStack = this.redoStack.filter((e) => !hasBuffer(e))
   }
@@ -1218,9 +1226,9 @@ export class LoopEngine implements LoopEngineApi {
     return true
   }
   /**
-   * Undo/redo for one sample add/remove step. Returns false when it can't be applied here (the other
-   * side already exists, or the track cap would be exceeded), so the caller drops it instead of
-   * clobbering a same-id track introduced by an import or a re-used id.
+   * Undo/redo for one whole-track add/remove step. Returns false when it can't be applied here (the
+   * other side already exists, or the track cap would be exceeded), so the caller drops it instead
+   * of clobbering a same-id track introduced by an import or a re-used id.
    */
   private applyTrackEntry(e: UndoEntry, side: "before" | "after"): boolean {
     const entry = e.track!
@@ -1233,12 +1241,15 @@ export class LoopEngine implements LoopEngineApi {
     } else {
       if (existing || this.tracks.length >= MAX_TRACKS) return false
       const t = cloneTrack(target)
-      t.hasAudio = false
-      t.peaks = []
+      if (!entry.buffer) {
+        t.hasAudio = false
+        t.peaks = []
+      }
       const at = clamp(entry.index, 0, this.tracks.length)
       this.tracks = [...this.tracks.slice(0, at), t, ...this.tracks.slice(at)]
       this.makeChannel(t)
-      this.enqueueRender(t.id)
+      if (entry.buffer) this.applyBuffer(t.id, entry.buffer)
+      else this.enqueueRender(t.id)
     }
     this.selectedTrackId = side === "before" ? entry.selectedBefore : entry.selectedAfter
     if (!this.track(this.selectedTrackId ?? "")) this.selectedTrackId = this.tracks[0]?.id ?? null

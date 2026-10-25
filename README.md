@@ -8,11 +8,12 @@ No third-party audio files, no audio libraries, no server. Every sound is synthe
 
 - **Hear it straight away, with no microphone.** One tap starts a four-bar demo in A minor (Am7 · Fmaj7 · Cmaj7 · G6) with synthesized drums, bass and keys.
 - **Edit the groove.** There's a 16-step drum grid, preset bass and keys patterns, tempo from 60 to 180 BPM, and loops of 1, 2 or 4 bars. The chord lane holds up to eight bars; slots outside the current loop are disabled and labeled until you lengthen it, and their chords are kept either way.
-- **Record loops.** Recording is quantised to the loop: it starts on the next loop boundary and captures exactly one pass. The source is either the eight-pad instrument (keys A S D F · H J K L) or a microphone. Recording onto a track that already has audio overdubs it. Undo and redo cover recordings, clears and pattern edits.
+- **Record loops.** Recording is quantised to the loop: it starts on the next loop boundary and captures exactly one pass. The source is either the eight-pad instrument (keys A S D F · H J K L) or a microphone. Recording onto a track that already has audio overdubs it. Undo and redo cover recordings, clears, pattern edits, and removing a loop or sample track (a removed recording is restored with its audio). Tempo and loop length lock while recorded loops exist, and the disabled controls say why.
 - **Mix.** Each track has volume, pan, mute and solo, plus a DJ filter, drive, and sends to a tempo-synced delay and a convolution reverb.
-- **Export a WAV file.** The export is rendered offline through the same graph you hear, and the file loops seamlessly in other software.
-- **Add samples that fit the key.** A searchable shelf of loops with stated keys, filtered and sorted against the project key. A clashing loop says exactly which note is outside the key before you add it.
-- **Share a beat.** The tempo, patterns and mix are encoded in the URL hash.
+- **Export a WAV file.** The export is two loop passes, rendered offline through the same graph you hear, and the file loops seamlessly in other software. Its name states the tempo, bar count, loop count and length (for example `loopcraft-92bpm-4bars-2loops-21s.wav`).
+- **Add samples that fit the key.** A searchable shelf of loops with stated keys, filtered and sorted against the project key. A clashing loop says exactly which note is outside the key before you add it, and its row is tinted and labelled "Out of key".
+- **Share a beat.** The tempo, patterns, samples and mix are encoded in the URL hash. Recorded loops stay in this browser and are never included in the link.
+- **Play/pause with Space.** Space always drives the transport when shortcuts are on, even if a button still has focus; Enter activates focused buttons. Text fields, sliders and selects keep Space for themselves, and the start gate keeps it until audio starts.
 - **Hand the session to an agent.** The whole project is a small documented JSON document: read it, edit it, paste it back, with no account and no server.
 
 ## Samples that respect your key
@@ -145,7 +146,26 @@ The same probe scripts, run against this branch, from a real click on "Play the 
 
 Browser probes at 1280×800 and 390×844 found no console or page errors, no horizontal overflow on the phone layout, and the two-row phone header still intact.
 
-Unit tests use Node's built-in runner with no dependencies. There are 304 of them, covering the timing math, DSP helpers, WAV encoder, share codec, the engine's command API and input validation, sample audition state, the recorder worklet (run in a Node VM with a stub processor), the harmony core, the sample library's stated metadata and key compatibility, and the project JSON round-trip and validation, including seeded property and fuzz tests:
+### Interaction fixes re-measured (2026-10-25, production build, headless Chrome)
+
+Driven through the real UI and the documented `window.__loopcraft` API; media/audio were the browser's own synthesized engine (no external uploads or paid calls):
+
+| What | Result |
+|---|---|
+| Space with focus on a control | Mouse- or keyboard-focused "Mute Drums": Space toggles playback (`true → false → true`) and leaves mute unchanged; Enter still activates the button. Space on a select keeps the select's native behaviour; the start gate still starts with Space |
+| Chord popover | Initial focus lands on the first suggestion (a `BUTTON` inside the dialog), a global `2` does not change the selected track, Space activates the suggestion without touching transport, Escape closes it even after focus is blurred, and focus returns to the bar |
+| Loop-length lock | All three choices are `aria-disabled` with a title and `aria-describedby`; tapping "1 bar" leaves the loop at 4 bars and shows "Clear the recorded loops to change the loop length"; the reason is visible at desktop width, and a lock icon marks the group ("locked" caption where the header has room) |
+| Recorded-loop removal | Remove Loop A → Undo restores the track in its slot, the selection, `tempoLocked: true`, and the exact 500869-frame buffer; Redo removes it again |
+| WAV export | Clicking the button downloads `loopcraft-92bpm-4bars-2loops-21s.wav`; the file is 2 × 500869 = **1001738 frames / 20.8695 s**, 16-bit stereo 48 kHz; the button reads "WAV 21s" and its accessible name states 2 loops of 4 bars at 92 BPM, about 21 seconds |
+| Share link | Copying shows a check at the button and "Link copied"; with a recorded loop the status says "Link copied without recorded loops — they stay in this browser." and the share code does not contain `loop-a`; the button's accessible name states the limitation at rest |
+| Sample shelf | "3 loops are out of key with A minor; they are marked below." The three clash rows have a red wash and a 4 px red edge (vs the 2 px in-key edge) and read "Out of key" |
+| Layout at 1440/1280/1120/960/800/720/400/390/360/320 px | 1 header row at ≥720 px and 2 rows below, no horizontal overflow at any width, no overlapping header controls |
+| Touch targets on a 390 px phone | Play/Record/share/WAV/selects/track mute+solo/volume/remove/clear/record source/nudges are 44 px; the dense row-2 icons are 40 px and the BPM ± are 36 px (the 2-row header cannot fit 44 px there) |
+| Console | Only the pre-existing `/favicon.ico` 404; no page errors |
+
+The unit suite covers the removal-undo path directly, including restoring an audio buffer and re-locking the tempo. Browser-only checks above (Space, focus, touch sizes, download name) have no DOM test runner in this project.
+
+Unit tests use Node's built-in runner with no dependencies. There are 330 of them, covering the timing math, DSP helpers, WAV encoder, share codec, the engine's command API and input validation, sample audition state, loop and sample removal undo, the recorder worklet (run in a Node VM with a stub processor), the harmony core, the sample library's stated metadata and key compatibility, and the project JSON round-trip and validation, including seeded property and fuzz tests:
 
 ```bash
 npm test

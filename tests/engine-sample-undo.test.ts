@@ -126,8 +126,68 @@ describe("sample remove undo", () => {
   })
 })
 
+describe("audio removal undo", () => {
+  test("removing an empty loop track is undoable and restores its slot and selection", () => {
+    const e = new LoopEngine()
+    const id = e.addAudioTrack()!
+    e.selectTrack(id)
+    const before = e.getDocument()
+    const index = e.getSnapshot().tracks.findIndex((t) => t.id === id)
+
+    e.removeTrack(id)
+    assert.equal(track(e, id), undefined)
+    assert.equal(e.getSnapshot().canUndo, true)
+    assert.match(e.getSnapshot().message ?? "", /Undo restores it/)
+
+    e.undo()
+    assert.deepEqual(e.getDocument(), before)
+    assert.equal(e.getSnapshot().tracks[index].id, id)
+    assert.equal(e.getSnapshot().selectedTrackId, id)
+    assert.equal(e.getSnapshot().canRedo, true)
+
+    e.redo()
+    assert.equal(track(e, id), undefined)
+  })
+
+  test("undoing a recorded-loop removal restores its buffer and re-locks tempo", () => {
+    const e = new LoopEngine()
+    const fake = {
+      length: 96,
+      numberOfChannels: 1,
+      sampleRate: 48000,
+      getChannelData: () => new Float32Array(96).fill(0.4),
+    } as unknown as AudioBuffer
+    // Node has no Web Audio; install the buffer through the engine's own map so the removal path
+    // (not a mocked method) is what keeps it alive.
+    const internals = e as unknown as {
+      buffers: Map<string, AudioBuffer>
+      patchTrack: (id: string, patch: object) => void
+      emit: () => void
+    }
+    internals.buffers.set("loop-a", fake)
+    internals.patchTrack("loop-a", { hasAudio: true, peaks: [0.4] })
+    internals.emit()
+    assert.equal(e.getSnapshot().tempoLocked, true)
+
+    e.removeTrack("loop-a")
+    assert.equal(e.debug.buffer("loop-a"), null)
+    assert.equal(e.getSnapshot().tempoLocked, false)
+    assert.equal(e.getSnapshot().canUndo, true)
+
+    e.undo()
+    assert.equal(e.debug.buffer("loop-a"), fake)
+    const restored = track(e, "loop-a")!
+    assert.equal(restored.hasAudio, true)
+    assert.equal(e.getSnapshot().tempoLocked, true)
+
+    e.redo()
+    assert.equal(e.debug.buffer("loop-a"), null)
+    assert.equal(e.getSnapshot().tempoLocked, false)
+  })
+})
+
 describe("sample undo scope", () => {
-  test("non-sample removals and addAudioTrack stay outside the undo history", () => {
+  test("synth removals and addAudioTrack stay outside the undo history", () => {
     const e = new LoopEngine()
     assert.ok(e.addAudioTrack())
     assert.equal(e.getSnapshot().canUndo, false)

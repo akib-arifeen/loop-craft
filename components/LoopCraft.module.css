@@ -46,6 +46,13 @@
   filter: brightness(1.2);
 }
 
+@media (max-width: 719.98px) {
+  .resume {
+    height: auto;
+    min-height: var(--size-touch);
+  }
+}
+
 .body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

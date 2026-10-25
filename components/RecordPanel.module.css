@@ -112,3 +112,14 @@
   transform: scaleX(0);
   transform-origin: left;
 }
+
+@media (max-width: 719.98px) {
+  .srcBtn {
+    min-height: var(--size-touch);
+  }
+
+  .nudgeBtn {
+    height: var(--size-touch);
+    min-width: var(--size-touch);
+  }
+}

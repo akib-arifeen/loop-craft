@@ -22,7 +22,7 @@ import styles from "./Samples.module.css"
 
 type KeyFilter = "any" | "fits" | string
 
-const GROUP_TITLES = (project: string) => [`In key · ${project}`, "Always fits · drums have no key", `Clashes with ${project}`]
+const GROUP_TITLES = (project: string) => [`In key · ${project}`, "Always fits · drums have no key", `Out of key · ${project}`]
 
 /**
  * The sample shelf. Loops are listed with the key their pack states, judged against the project key
@@ -123,6 +123,8 @@ export default function Samples() {
     else engine.auditionSample(sample.id)
   }
 
+  const outOfKey = rows.filter((row) => row.fit.fit === "clash").length
+
   // A filtered-out preview would have no visible Stop control, so it stops rather than keeps sounding.
   useEffect(() => {
     if (!open || !auditioningId) return
@@ -177,6 +179,12 @@ export default function Samples() {
                 <p className={styles.lede}>
                   Ready-made loops, rendered by LoopCraft&rsquo;s own instruments. Sorted for <strong>{project}</strong>: compatible loops first.
                 </p>
+                {outOfKey > 0 && (
+                  <p className={styles.clashSummary}>
+                    {outOfKey} {outOfKey === 1 ? "loop is" : "loops are"} out of key with {project}; {outOfKey === 1 ? "it is" : "they are"} marked
+                    below.
+                  </p>
+                )}
               </div>
               <button type="button" className={styles.close} aria-label="Close samples" onClick={closeShelf}>
                 <X size={18} />
@@ -305,7 +313,7 @@ export default function Samples() {
                             className={styles.add}
                             disabled={atMax || isAdded}
                             title={atMax ? "Up to 8 tracks" : undefined}
-                            aria-label={row.fit.fit === "clash" ? `Add ${row.sample.name} anyway, it clashes with ${project}` : `Add ${row.sample.name} to the session`}
+                            aria-label={row.fit.fit === "clash" ? `Add ${row.sample.name} anyway, it is out of key with ${project}` : `Add ${row.sample.name} to the session`}
                             onClick={() => add(row.sample)}
                           >
                             {isAdded ? "Added" : row.fit.fit === "clash" ? "Add anyway" : "Add"}
