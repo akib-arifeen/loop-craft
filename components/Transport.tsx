@@ -140,7 +140,10 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
             aria-describedby={locked ? "loop-length-lock" : undefined}
             className={`mono ${styles.segBtn}`}
             title={locked ? barsLockTitle : undefined}
-            onClick={() => engine.setBars(b)}
+            onClick={() => {
+              if (locked) onNotice(barsLockTitle)
+              else engine.setBars(b)
+            }}
           >
             {b}
           </button>
