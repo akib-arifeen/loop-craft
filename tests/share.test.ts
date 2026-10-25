@@ -2,6 +2,7 @@ import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { decodeShare, encodeShare } from "../lib/audio/share.ts"
 import { demoTracks } from "../lib/audio/patterns.ts"
+import { BASS_PARTS, KEYS_PARTS } from "../lib/harmony/presets.ts"
 import { BAR_OPTIONS, DRUM_VOICES, MAX_BPM, MAX_TRACKS, MIN_BPM, STEPS_PER_BAR } from "../lib/audio/types.ts"
 import type { Bars, DrumPattern, ShareData } from "../lib/audio/types.ts"
 
@@ -105,7 +106,7 @@ function randomShare(r: ReturnType<typeof makeRng>): ShareData {
       for (const v of DRUM_VOICES) dp[v] = Array.from({ length: STEPS_PER_BAR }, () => r.int(0, 2))
       t.drumPattern = dp
     } else {
-      t.patternId = `pat-${r.int(0, 50)}`
+      t.patternId = r.pick(kind === "bass" ? BASS_PARTS : KEYS_PARTS).id
     }
     tracks.push(t)
   }
@@ -306,6 +307,36 @@ describe("decodeShare size and id rules", () => {
   test("valid demo data still round-trips", () => {
     const d = demoShare()
     assert.deepStrictEqual(decodeShare(encodeShare(d)), d)
+  })
+})
+
+describe("decodeShare pattern presets match parseProject", () => {
+  const dec = (t: unknown[]) => decodeShare(b64(rawDoc(t)))
+
+  test("a preset from the other family is rejected", () => {
+    assert.equal(dec([rawTrack({ id: "k", k: "keys", d: undefined, pid: "bass-pulse" })]), null)
+    assert.equal(dec([rawTrack({ id: "b", k: "bass", d: undefined, pid: "keys-stabs" })]), null)
+    assert.equal(dec([rawTrack({ id: "k", k: "keys", d: undefined, pid: "bass-sub" })]), null)
+  })
+
+  test("an unknown preset id is rejected instead of falling back", () => {
+    assert.equal(dec([rawTrack({ id: "k", k: "keys", d: undefined, pid: "keys-nope" })]), null)
+    assert.equal(dec([rawTrack({ id: "b", k: "bass", d: undefined, pid: "nope" })]), null)
+  })
+
+  test("a preset of the track's own kind is kept", () => {
+    const keys = dec([rawTrack({ id: "k", k: "keys", d: undefined, pid: "keys-arp" })])!
+    assert.equal(keys.tracks[0].patternId, "keys-arp")
+    const bass = dec([rawTrack({ id: "b", k: "bass", d: undefined, pid: "bass-walk" })])!
+    assert.equal(bass.tracks[0].patternId, "bass-walk")
+  })
+
+  test("pid on a drums or sample track is ignored, as parseProject ignores patternId", () => {
+    const drums = dec([rawTrack({ pid: "bass-pulse" })])!.tracks[0]
+    assert.equal("patternId" in drums, false)
+    const sample = dec([rawTrack({ k: "sample", d: undefined, sid: "keys-am7-rhodes", pid: "keys-pad" })])!.tracks[0]
+    assert.equal("patternId" in sample, false)
+    assert.equal(sample.sampleId, "keys-am7-rhodes")
   })
 })
 

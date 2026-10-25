@@ -7,7 +7,7 @@ No third-party audio files, no audio libraries, no server. Every sound is synthe
 ## What you can do
 
 - **Hear it straight away, with no microphone.** One tap starts a four-bar demo in A minor (Am7 · Fmaj7 · Cmaj7 · G6) with synthesized drums, bass and keys.
-- **Edit the groove.** There's a 16-step drum grid, preset bass and keys patterns, tempo from 60 to 180 BPM, and loops of 1, 2 or 4 bars.
+- **Edit the groove.** There's a 16-step drum grid, preset bass and keys patterns, tempo from 60 to 180 BPM, and loops of 1, 2 or 4 bars. The chord lane holds up to eight bars; slots outside the current loop are disabled and labeled until you lengthen it, and their chords are kept either way.
 - **Record loops.** Recording is quantised to the loop: it starts on the next loop boundary and captures exactly one pass. The source is either the eight-pad instrument (keys A S D F · H J K L) or a microphone. Recording onto a track that already has audio overdubs it. Undo and redo cover recordings, clears and pattern edits.
 - **Mix.** Each track has volume, pan, mute and solo, plus a DJ filter, drive, and sends to a tempo-synced delay and a convolution reverb.
 - **Export a WAV file.** The export is rendered offline through the same graph you hear, and the file loops seamlessly in other software.
@@ -69,6 +69,8 @@ The document is deliberately small:
 Rules that make it safe to hand to an agent:
 
 - `key` plus `chordLane` (one Roman numeral per bar, 1 to 8) is the harmony. Bass and keys patterns are harmony-relative, so they follow it.
+- A bass or keys `patternId` must name a preset of that track's kind. A cross-family id (a keys track asking for a bass part, or the reverse) or an unknown id is rejected by project import, share links and `setPattern` alike, with no partial change.
+- Track ids stay unique. If an incoming project or share code reuses a recorded loop's id, the incoming track gets a deterministic suffix (`-p` for a project, `-s` for a share, then `-2`, `-3`, …), so the recorded loop keeps its id and the exported project always re-imports.
 - `kind: "sample"` loops are absolute: `sampleId` names a stated loop from `lib/samples/library.ts`. Unknown ids are rejected rather than silently dropped.
 - Recorded audio is local-only and never appears in the file; importing a project leaves the recorded tracks you already have untouched.
 - Numbers are clamped (`tempo` 60 to 180, `bars` snaps to 1, 2 or 4), every structural error rejects the whole document with one readable sentence, and nothing is half-applied. `lib/audio/project.ts` is the source of truth and has its own test suite.

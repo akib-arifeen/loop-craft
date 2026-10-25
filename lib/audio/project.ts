@@ -24,7 +24,9 @@
 //  - A loop's notes are REAL only for "sample" tracks, which reference a stated loop from
 //    lib/samples/library.ts by id. Bass/keys reference a harmony-relative preset by patternId.
 //  - Recorded audio (mic / pads) is never part of this file: it is local-only, and importing a
-//    project leaves the recorded tracks you already have untouched.
+//    project leaves the recorded tracks you already have untouched. If an incoming id collides with
+//    a recorded loop, the incoming track is renamed deterministically (see reconcileTrackIds) so
+//    every id stays unique and the exported document re-imports.
 //  - Unknown fields are ignored; every numeric field is clamped, and any structural error rejects
 //    the whole document with one plain sentence instead of half-applying it.
 //
@@ -122,6 +124,43 @@ function readDrumPattern(raw: unknown): DrumPattern | null {
     out[voice] = cells as number[]
   }
   return out
+}
+
+const ID_MAX = 64
+
+/**
+ * Picks a track id that is not in `taken`: `base` when it is free, otherwise `base-<tag>`,
+ * `base-<tag>-2`, `base-<tag>-3`, ... The base is cut so every candidate still matches ID_RE.
+ */
+export function allocateTrackId(base: string, taken: ReadonlySet<string>, tag: string): string {
+  if (!taken.has(base)) return base
+  for (let n = 1; ; n++) {
+    const tail = n === 1 ? `-${tag}` : `-${tag}-${n}`
+    const candidate = base.slice(0, ID_MAX - tail.length) + tail
+    if (!taken.has(candidate)) return candidate
+  }
+}
+
+/**
+ * Reconciles incoming track ids with the ids that must be kept (recorded loops). An incoming id
+ * that is free is left exactly as it is; a colliding one gets a deterministic unique id. Every
+ * incoming id is reserved before allocating, so a renamed track can never take an id another
+ * incoming track is about to use. Order is preserved.
+ */
+export function reconcileTrackIds<T extends { id: string }>(incoming: readonly T[], taken: ReadonlySet<string>, tag: string): T[] {
+  const reserved = new Set(taken)
+  for (const t of incoming) reserved.add(t.id)
+  const used = new Set(taken)
+  return incoming.map((t) => {
+    if (!used.has(t.id)) {
+      used.add(t.id)
+      return t
+    }
+    const id = allocateTrackId(t.id, reserved, tag)
+    reserved.add(id)
+    used.add(id)
+    return { ...t, id }
+  })
 }
 
 /** The project as pretty JSON for an agent to read or write. */

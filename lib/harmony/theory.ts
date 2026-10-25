@@ -264,6 +264,14 @@ export function laneLength(h: Harmony): number {
   return h.chords.reduce((sum, c) => sum + c.length, 0)
 }
 
+/**
+ * True when a chord slot starts inside the transport loop. A lane may hold more bars than the
+ * loop is long; the extra slots stay in the lane (and in the project) but are not heard.
+ */
+export function slotInLoop(h: Harmony, slot: ChordSlot, bars: number): boolean {
+  return slot.start < bars * h.beatsPerBar
+}
+
 /** The slot sounding at `beat` (taken modulo laneLength, true modulo for negatives). Throws if the lane is empty. */
 export function chordAt(h: Harmony, beat: number): ChordSlot {
   if (h.chords.length === 0) throw new Error("chordAt: the chord lane is empty")

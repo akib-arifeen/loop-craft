@@ -59,6 +59,16 @@ export function shortcutsEnabled(): boolean {
   return readShortcuts()
 }
 
+// While a modal dialog is open the global single-key shortcuts (Space, 1-8, R, M, pads) must not
+// fire behind it. Modal components register here for as long as they are open.
+let modalDepth = 0
+export function setModalOpen(open: boolean): void {
+  modalDepth = Math.max(0, modalDepth + (open ? 1 : -1))
+}
+export function modalOpen(): boolean {
+  return modalDepth > 0
+}
+
 export function useShortcuts(): boolean {
   return useSyncExternalStore(
     (l) => {

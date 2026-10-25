@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Download, X } from "./icons"
-import { useEngine } from "./useEngine"
+import { setModalOpen, useEngine } from "./useEngine"
 import styles from "./ProjectBridge.module.css"
 
 /**
@@ -16,6 +16,8 @@ export default function ProjectBridge({ onNotice }: { onNotice: (text: string) =
   const [text, setText] = useState("")
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null)
   const areaRef = useRef<HTMLTextAreaElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
 
   const openDialog = () => {
     setText(engine.exportProject())
@@ -23,22 +25,54 @@ export default function ProjectBridge({ onNotice }: { onNotice: (text: string) =
     setOpen(true)
   }
 
+  const closeDialog = useCallback(() => {
+    setOpen(false)
+    triggerRef.current?.focus()
+  }, [])
+
   useEffect(() => {
     if (!open) return
     areaRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false)
+    setModalOpen(true)
+    // Document-level so Escape and the Tab trap keep working if focus ever leaves the dialog.
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        closeDialog()
+        return
+      }
+      if (e.key !== "Tab") return
+      const container = dialogRef.current
+      if (!container) return
+      const items = Array.from(container.querySelectorAll<HTMLElement>("button, input, select, textarea")).filter((el) => !el.hasAttribute("disabled"))
+      if (!items.length) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (!container.contains(active)) {
+        e.preventDefault()
+        ;(e.shiftKey ? last : first).focus()
+      } else if (e.shiftKey && (active === first || active === container)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [open])
+    document.addEventListener("keydown", onKey)
+    return () => {
+      setModalOpen(false)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [open, closeDialog])
 
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text)
       setStatus({ kind: "ok", text: "Copied. Give it to an agent, then paste its version back here and Load JSON." })
     } catch {
-      setStatus({ kind: "error", text: "Couldn't copy. select the text and copy it by hand." })
+      setStatus({ kind: "error", text: "Couldn't copy. Select the text and copy it by hand." })
     }
   }
 
@@ -67,9 +101,12 @@ export default function ProjectBridge({ onNotice }: { onNotice: (text: string) =
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         className={styles.trigger}
         aria-label="Project JSON for agents"
+        aria-haspopup="dialog"
+        aria-expanded={open}
         title="Project JSON. read or write this session from an agent"
         onClick={openDialog}
       >
@@ -77,8 +114,16 @@ export default function ProjectBridge({ onNotice }: { onNotice: (text: string) =
       </button>
 
       {open && (
-        <div className={styles.overlay} role="presentation" onPointerDown={(e) => e.target === e.currentTarget && setOpen(false)}>
-          <div className={styles.panel} role="dialog" aria-modal="true" aria-labelledby="project-json-title" data-testid="project-bridge">
+        <div className={styles.overlay} role="presentation" onPointerDown={(e) => e.target === e.currentTarget && closeDialog()}>
+          <div
+            ref={dialogRef}
+            className={styles.panel}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="project-json-title"
+            data-testid="project-bridge"
+            tabIndex={-1}
+          >
             <div className={styles.head}>
               <div>
                 <h2 id="project-json-title" className={styles.title}>
@@ -89,7 +134,7 @@ export default function ProjectBridge({ onNotice }: { onNotice: (text: string) =
                   this browser and are never included.
                 </p>
               </div>
-              <button type="button" className={styles.close} aria-label="Close project JSON" onClick={() => setOpen(false)}>
+              <button type="button" className={styles.close} aria-label="Close project JSON" onClick={closeDialog}>
                 <X size={18} />
               </button>
             </div>

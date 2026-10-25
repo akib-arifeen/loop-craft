@@ -26,7 +26,7 @@ import { MODES } from "../harmony/types.ts"
 import type { Harmony, Mode } from "../harmony/types.ts"
 import { chordAt, parseNoteName, parseRoman } from "../harmony/theory.ts"
 import { pitchToMidi } from "../harmony/realize.ts"
-import { demoHarmony, findPart } from "../harmony/presets.ts"
+import { demoHarmony, BASS_PARTS, KEYS_PARTS } from "../harmony/presets.ts"
 import { computePeaks, isAudible, mixInto } from "./dsp.ts"
 import { captureWindow, loopFrameCount, loopOffset, loopPhase, nextBoundary, secondsToFrames, stepFrame } from "./timing.ts"
 import { createNoiseBuffer, playDrum, playKeys } from "./synth.ts"
@@ -37,7 +37,7 @@ import type { Mixer, MixerChannel } from "./mixer.ts"
 import { renderMixdown } from "./exporter.ts"
 import { encodeWav16 } from "./wav.ts"
 import { decodeShare, encodeShare } from "./share.ts"
-import { parseProject, stringifyProject, toProject } from "./project.ts"
+import { parseProject, reconcileTrackIds, stringifyProject, toProject } from "./project.ts"
 import { findSample } from "../samples/library.ts"
 import type { SampleLoop } from "../samples/library.ts"
 
@@ -1128,7 +1128,8 @@ export class LoopEngine implements LoopEngineApi {
     if (!isStr(id) || !isStr(patternId)) return
     const t = this.track(id)
     if (!t || (t.kind !== "bass" && t.kind !== "keys")) return
-    if (!findPart(patternId) || t.patternId === patternId) return
+    const parts = t.kind === "bass" ? BASS_PARTS : KEYS_PARTS
+    if (!parts.some((p) => p.id === patternId) || t.patternId === patternId) return
     this.pushUndo({ trackId: id, before: { patternId: t.patternId }, after: { patternId } })
     this.patchTrack(id, { patternId })
     this.enqueueRender(id)
@@ -1566,26 +1567,30 @@ export class LoopEngine implements LoopEngineApi {
     this.doCancelRecord()
     const audioTracks = this.tracks.filter((t) => t.kind === "audio")
     const audioIds = new Set(audioTracks.map((t) => t.id))
-    const shared: TrackState[] = data.tracks
-      .filter((t) => t.kind !== "audio")
-      .map((t) => {
-        const ts: TrackState = {
-          id: audioIds.has(t.id) ? `${t.id}-s` : t.id,
-          name: t.name,
-          kind: t.kind,
-          volume: t.volume,
-          pan: t.pan,
-          muted: t.muted,
-          soloed: t.soloed,
-          fx: { ...t.fx },
-          hasAudio: false,
-          peaks: [],
-        }
-        if (t.drumPattern) ts.drumPattern = cloneDrumPattern(t.drumPattern)
-        if (t.patternId !== undefined) ts.patternId = t.patternId
-        if (t.sampleId !== undefined) ts.sampleId = t.sampleId
-        return ts
-      })
+    const shared: TrackState[] = reconcileTrackIds(
+      data.tracks
+        .filter((t) => t.kind !== "audio")
+        .map((t) => {
+          const ts: TrackState = {
+            id: t.id,
+            name: t.name,
+            kind: t.kind,
+            volume: t.volume,
+            pan: t.pan,
+            muted: t.muted,
+            soloed: t.soloed,
+            fx: { ...t.fx },
+            hasAudio: false,
+            peaks: [],
+          }
+          if (t.drumPattern) ts.drumPattern = cloneDrumPattern(t.drumPattern)
+          if (t.patternId !== undefined) ts.patternId = t.patternId
+          if (t.sampleId !== undefined) ts.sampleId = t.sampleId
+          return ts
+        }),
+      audioIds,
+      "s",
+    )
     for (const old of this.tracks) {
       if (isSynth(old)) {
         this.disposeTrackAudio(old.id)
@@ -1637,7 +1642,7 @@ export class LoopEngine implements LoopEngineApi {
     this.clearAudition()
     this.doCancelRecord()
     const audioIds = new Set(audioTracks.map((t) => t.id))
-    const incoming = project.tracks.map((t) => (audioIds.has(t.id) ? { ...t, id: `${t.id}-p` } : t))
+    const incoming = reconcileTrackIds(project.tracks, audioIds, "p")
     for (const old of this.tracks) {
       if (isSynth(old)) {
         this.disposeTrackAudio(old.id)

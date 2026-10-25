@@ -83,6 +83,13 @@
   color: var(--color-ink-3);
 }
 
+.note {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-ink-3);
+}
+
 .popover {
   position: absolute;
   top: 100%;
