@@ -1056,7 +1056,8 @@ export class LoopEngine implements LoopEngineApi {
     }
     this.updateAllChannels()
     this.emit()
-    if (undoable) this.setMessage("Track removed. Undo restores it.")
+    // Either way the live status region says what happened: a removal with no undo step must not be silent.
+    this.setMessage(undoable ? "Track removed. Undo restores it." : `${t.name} removed. This can't be undone.`)
   }
   private disposeTrackAudio(id: string): void {
     if (this.ctx) this.stopVoice(id, this.ctx.currentTime, true)

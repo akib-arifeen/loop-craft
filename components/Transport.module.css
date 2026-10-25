@@ -286,6 +286,8 @@
   .segLabel { display: none; }
   .o9 { width: var(--size-touch); height: var(--size-touch); }
   .export { min-height: var(--size-touch); min-width: var(--size-touch); }
+  /* Tempo steps are the narrowest tap on the row; they take the full touch size wherever the row fits. */
+  .step { width: var(--size-touch); height: var(--size-touch); }
 }
 
 @media (max-width: 399.98px) {
@@ -294,7 +296,6 @@
     padding: var(--space-2) var(--space-1);
   }
   .round { width: var(--size-touch); height: var(--size-touch); }
-  .step { width: var(--size-control-l); height: var(--size-control-l); }
   .segBtn, .icon { width: var(--size-control-xl); height: var(--size-control-xl); }
   .o9 { width: var(--size-touch); height: var(--size-touch); }
   .export { min-height: var(--size-touch); min-width: var(--size-touch); padding: 0 var(--space-2); }
@@ -325,7 +326,8 @@
   .label { display: none; }
 }
 
-@media (max-width: 379.98px) {
+/* Below 420 px the wordmark and 44 px tempo steps cannot share row 1; the h1 stays for screen readers. */
+@media (max-width: 419.98px) {
   .wordmark {
     position: absolute;
     width: 1px;
@@ -354,5 +356,21 @@
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+}
+
+/* The tempo is at most three digits (60–180), and 180 BPM with the 20 px numeral is the widest case:
+   measured, 332 px is the first width where the tempo group with two 44 px steps, the share button and
+   the WAV button still share row 1. At 331 px and below the WAV button leaves row 1 and the header
+   wraps to three rows, so those widths take 40 px steps and a 15 px numeral; 332 px and up keep the
+   44 px steps and the 20 px numeral. */
+@media (max-width: 331.98px) {
+  .step {
+    width: var(--size-control-xl);
+    height: var(--size-control-xl);
+  }
+
+  .bpmNum {
+    font-size: var(--text-lg);
   }
 }

@@ -1,6 +1,7 @@
 .grid {
   flex: 1;
-  min-height: 0;
+  /* Two rows plus the gap is the floor: a shorter box used to spill the second row onto the hint. */
+  min-height: calc(2 * var(--size-row) + var(--space-2));
   grid-template-rows: repeat(2, minmax(var(--size-row), var(--size-pad-max)));
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -46,6 +47,24 @@
 @media (prefers-reduced-motion: reduce) {
   .pad[data-hit="true"] {
     transform: none;
+  }
+}
+
+/* Short windows (an 800x520 embed, a laptop with a shallow viewport): two 52 px rows plus the hint
+   do not fit the record panel, so the pads keep the 44 px touch floor and the keyboard hint gives way
+   instead of being covered. Each pad still shows its own key letter and carries aria-keyshortcuts. */
+@media (min-width: 720px) and (max-height: 567.98px) {
+  .pad {
+    min-height: var(--size-touch);
+  }
+
+  .grid {
+    min-height: calc(2 * var(--size-touch) + var(--space-2));
+    grid-template-rows: repeat(2, minmax(var(--size-touch), var(--size-pad-max)));
+  }
+
+  .hint {
+    display: none;
   }
 }
 

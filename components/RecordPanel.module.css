@@ -3,11 +3,18 @@
   flex-direction: column;
   gap: var(--space-2);
   height: 100%;
+  /* When the panel is shorter than this content, scroll it here: the pads used to spill out of the
+     panel over the hint and the effects row. The padding is the room a focused control's 2 px outline
+     plus its 2 px offset needs, so a ring on the edge controls is not clipped by this scrollport. */
+  overflow-y: auto;
+  padding: var(--space-1);
 }
 
 .wrap > :last-child {
   flex: 1;
-  min-height: 0;
+  /* The pads block keeps the grid's two-row floor, so its box ends where the rows end and the padding
+     above (and the panel's scroll range) still cover a focused pad's outline. */
+  min-height: calc(2 * var(--size-row) + var(--space-2));
   display: flex;
   flex-direction: column;
 }
@@ -121,5 +128,17 @@
   .nudgeBtn {
     height: var(--size-touch);
     min-width: var(--size-touch);
+  }
+}
+
+/* Same short-window rule as the pads: the tighter rhythm is what lets the pads keep two 44 px rows
+   in an 800x520 panel without the panel having to scroll. */
+@media (min-width: 720px) and (max-height: 567.98px) {
+  .wrap {
+    gap: var(--space-1);
+  }
+
+  .wrap > :last-child {
+    min-height: calc(2 * var(--size-touch) + var(--space-2));
   }
 }
