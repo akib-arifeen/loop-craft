@@ -15,6 +15,7 @@ import {
   parseRoman,
   pitchClass,
   romanNumeral,
+  slotInLoop,
 } from "../lib/harmony/theory.ts"
 import { demoHarmony } from "../lib/harmony/presets.ts"
 import { CHORD_QUALITIES, LETTERS } from "../lib/harmony/types.ts"
@@ -482,5 +483,34 @@ describe("laneLength / chordAt", () => {
   })
   test("empty lane throws", () => {
     assert.throws(() => chordAt({ ...h, chords: [] }, 0))
+  })
+})
+
+describe("slotInLoop", () => {
+  const h: Harmony = demoHarmony()
+  const flags = (bars: number) => h.chords.map((slot) => slotInLoop(h, slot, bars))
+
+  test("1 bar: only the first slot of a four-chord lane sounds", () => {
+    assert.deepEqual(flags(1), [true, false, false, false])
+  })
+
+  test("2 bars: the first two slots sound", () => {
+    assert.deepEqual(flags(2), [true, true, false, false])
+  })
+
+  test("4 bars: every slot sounds", () => {
+    assert.deepEqual(flags(4), [true, true, true, true])
+  })
+
+  test("the lane itself is never truncated by the loop length", () => {
+    for (const bars of [1, 2, 4]) {
+      assert.equal(h.chords.length, 4)
+      assert.equal(flags(bars).length, 4)
+    }
+  })
+
+  test("a single-bar lane is in the loop at every length", () => {
+    const one: Harmony = { ...h, chords: [h.chords[0]] }
+    for (const bars of [1, 2, 4]) assert.equal(slotInLoop(one, one.chords[0], bars), true)
   })
 })

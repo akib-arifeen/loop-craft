@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { PROJECT_FORMAT, PROJECT_VERSION, parseProject, stringifyProject, toProject } from "../lib/audio/project.ts"
+import { PROJECT_FORMAT, PROJECT_VERSION, allocateTrackId, parseProject, reconcileTrackIds, stringifyProject, toProject } from "../lib/audio/project.ts"
 import { demoHarmony } from "../lib/harmony/presets.ts"
 import { cloneDrumPattern, DEMO_DRUMS } from "../lib/audio/patterns.ts"
 import type { SessionDocument } from "../lib/audio/types.ts"
@@ -137,4 +137,27 @@ test("parseProject accepts a string and unknown fields are ignored", () => {
   const text = JSON.stringify({ ...good, extra: { note: "ignored" }, tracks: good.tracks.map((t) => ({ ...t, extra: true })) })
   const parsed = parseProject(text)
   assert.equal(parsed.ok, true, parsed.ok ? "" : parsed.error)
+})
+
+test("track id reconciliation keeps free ids and allocates deterministic unique ones", () => {
+  const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+  const ids = (tracks: Array<{ id: string }>) => tracks.map((t) => t.id)
+
+  assert.deepEqual(ids(reconcileTrackIds([{ id: "drums" }, { id: "bass" }], new Set(["loop-a"]), "p")), ["drums", "bass"])
+  assert.deepEqual(ids(reconcileTrackIds([{ id: "loop-a" }], new Set(["loop-a"]), "p")), ["loop-a-p"])
+  assert.deepEqual(ids(reconcileTrackIds([{ id: "loop-a" }], new Set(["loop-a", "loop-a-p", "loop-a-p-2"]), "p")), ["loop-a-p-3"])
+
+  // A renamed track must never take the id another incoming track already carries.
+  assert.deepEqual(ids(reconcileTrackIds([{ id: "loop-a" }, { id: "loop-a-p" }], new Set(["loop-a"]), "p")), ["loop-a-p-2", "loop-a-p"])
+
+  // Duplicate incoming ids are still made unique without disturbing the first use.
+  assert.deepEqual(ids(reconcileTrackIds([{ id: "same" }, { id: "same" }, { id: "same" }], new Set(), "s")), ["same", "same-s", "same-s-2"])
+
+  // A 64-character id can still be renamed without leaving the documented id rule.
+  const long = "a".repeat(64)
+  const renamed = ids(reconcileTrackIds([{ id: long }], new Set([long]), "p"))[0]
+  assert.equal(renamed.length, 64)
+  assert.match(renamed, ID_RE)
+  assert.ok(renamed.endsWith("-p"))
+  assert.equal(allocateTrackId(long, new Set([long]), "p"), renamed)
 })

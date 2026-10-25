@@ -5,6 +5,7 @@ import type { Bars, DrumPattern, ShareData, TrackFx, TrackKind } from "./types.t
 import { MODES } from "../harmony/types.ts"
 import type { Harmony, Key, Mode } from "../harmony/types.ts"
 import { formatNoteName, parseNoteName, parseRoman, romanNumeral } from "../harmony/theory.ts"
+import { BASS_PARTS, KEYS_PARTS } from "../harmony/presets.ts"
 import { findSample } from "../samples/library.ts"
 
 type ShareTrack = ShareData["tracks"][number]
@@ -98,7 +99,9 @@ export function encodeShare(data: ShareData): string {
 
 /**
  * Inverse of encodeShare. Returns null for anything malformed: bad base64/JSON, v !== 1, unknown
- * kind, a drum lane that is not 16 digits 0-2, a missing patternId on bass/keys, a sample track whose
+ * kind, a drum lane that is not 16 digits 0-2, a missing patternId on bass/keys, a patternId that is
+ * not a preset of that track's kind (a keys track can't use a bass part, and vice versa; a pid on any
+ * other kind is ignored, as parseProject ignores patternId), a sample track whose
  * sid isn't in lib/samples/library.ts, more than
  * MAX_TRACKS tracks, a code longer than 4096 characters (checked before decoding), a track id that
  * is empty, longer than 64 characters, not matching /^[A-Za-z0-9_-]+$/, or duplicated within the
@@ -154,9 +157,8 @@ export function decodeShare(code: string): ShareData | null {
       }
       if (r.k === "bass" || r.k === "keys") {
         if (typeof r.pid !== "string") return null
-        track.patternId = r.pid
-      } else if (r.pid !== undefined) {
-        if (typeof r.pid !== "string") return null
+        const parts = r.k === "bass" ? BASS_PARTS : KEYS_PARTS
+        if (!parts.some((p) => p.id === r.pid)) return null
         track.patternId = r.pid
       }
       if (r.k === "sample") {
