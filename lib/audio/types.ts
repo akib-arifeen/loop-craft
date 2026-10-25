@@ -273,6 +273,7 @@ export interface LoopEngineApi {
    * id isn't in lib/samples/library.ts). Returns the new id or null. Undoable (one step): undo removes
    * the track and redo adds it back with the same id. The loop is rendered by the same
    * synths from absolute pitches, so it keeps its stated key instead of following key changes.
+   * Committing the sample ends any preview of it, so the new track is not doubled.
    */
   addSampleTrack(sampleId: string): string | null
   /**

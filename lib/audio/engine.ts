@@ -858,6 +858,9 @@ export class LoopEngine implements LoopEngineApi {
       this.setMessage("Up to 8 tracks")
       return null
     }
+    // Adding commits the loop, so the audition has done its job. Leaving it running would put a
+    // second copy of the same audio beside the new track.
+    this.clearAudition()
     let n = 1
     while (this.track(`sample-${n}`)) n++
     const id = `sample-${n}`
