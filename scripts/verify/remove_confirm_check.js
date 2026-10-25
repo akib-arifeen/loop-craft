@@ -84,6 +84,7 @@
       : false,
   }
   if (armed && !/Undo/.test(warning)) fails.push(`the removal warning does not mention Undo: "${warning}"`)
+  if (armed && !/no other way/.test(warning)) fails.push(`the removal warning does not state there is no other way back: "${warning}"`)
   if (armed && !facts.armed.pointHitsArmed) {
     const at = document.elementFromPoint(point.x, point.y)
     fails.push(`after arming, the tap point hits "${(at?.textContent || at?.tagName || "nothing").trim()}" instead of the confirm button`)

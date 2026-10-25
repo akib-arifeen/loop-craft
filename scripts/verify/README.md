@@ -83,7 +83,9 @@ refills the slot with another empty loop. Undo must then stay on the stack with 
 then undo again." and the count must stay at eight. It frees the slot by removing the filler—an
 undoable removal—and asserts the waiting step applies first: Keys returns with its exact state,
 rendered buffer, original slot and selection, the freeing removal remains undoable, and a further
-Undo is cap-blocked rather than bypassing the cap. Run it at 800×520, 390×844 and 320×568.
+Undo is cap-blocked rather than bypassing the cap. The swap only applies when the waiting step is the
+step directly beneath that removal; an unrelated edit in between must be unwound (Undone) before the
+next removal swaps with it. Run it at 800×520, 390×844 and 320×568.
 
 ## Fake microphone (`make_tone.py`)
 `python3 make_tone.py tone.wav` writes a 48 kHz mono beep file (80 ms every 500 ms). Launch Chromium

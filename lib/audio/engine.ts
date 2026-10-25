@@ -1113,6 +1113,10 @@ export class LoopEngine implements LoopEngineApi {
     this.channels.get(id)?.update(this.channelParams(nt))
     this.emit()
   }
+  /** A new edit normally drops the redo branch. A cap-blocked step is the exception: it is exactly the step a freed slot makes possible, so keep it (and only it) for the retry. */
+  private clearRedo(): void {
+    this.redoStack = this.redoStack.filter((e) => e.blocked)
+  }
   /** One undo step per mix gesture: same track + same changed fields within MIX_COALESCE_MS extend the newest entry. */
   private pushMixUndo(trackId: string, before: MixState, after: MixState): void {
     const fields = mixFields(before, after)
@@ -1123,7 +1127,7 @@ export class LoopEngine implements LoopEngineApi {
       last.fields?.join() === fields.join()) {
       last.after = { mix: after }
       last.at = now
-      this.redoStack = []
+      this.clearRedo()
       return
     }
     this.pushUndo({ trackId, before: { mix: before }, after: { mix: after }, fields, at: now })
@@ -1132,7 +1136,9 @@ export class LoopEngine implements LoopEngineApi {
     this.undoStack.push(entry)
     // A removal frees a track slot, which is exactly what a cap-blocked step was waiting for. Keep
     // that waiting step on top so the next Undo can apply it; the new removal stays below it and
-    // both steps survive. Without this, every removal in a full session would bury the retry.
+    // both steps survive. The swap only looks at the step immediately beneath the new removal: a
+    // blocked step is retried by the next removal once any intervening edits are unwound (undone),
+    // not by skipping over them.
     const n = this.undoStack.length
     if (entry.track?.after === null) {
       const waiting = n >= 2 ? this.undoStack[n - 2] : undefined
@@ -1142,7 +1148,7 @@ export class LoopEngine implements LoopEngineApi {
       }
     }
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift()
-    this.redoStack = []
+    this.clearRedo()
     while (this.undoStack.length > 0 && this.historyFrames() > MAX_UNDO_FRAMES) this.undoStack.shift()
   }
   /** Total frames of the distinct AudioBuffers kept alive by undo + redo. */
@@ -1360,6 +1366,8 @@ export class LoopEngine implements LoopEngineApi {
       this.undoStack.push(e)
       this.setMessage("Redone.")
     } else if (result === "cap") {
+      // Keep it for the retry: a new edit normally clears redo, but clearRedo() keeps this blocked
+      // step so freeing a slot makes it applicable.
       e.blocked = true
       this.redoStack.push(e)
       this.noteApplyFailure(result, "redo")

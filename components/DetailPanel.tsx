@@ -118,7 +118,7 @@ function RemoveButton({ track }: { track: TrackState }) {
       ? "Remove it. Undo restores the whole track, including recorded audio."
       : "Remove it. Undo restores it."
     : builtIn
-      ? `Remove ${track.name}. Undo restores it, but this page can't add a synth track back.`
+      ? `Remove ${track.name}. Undo restores it; there is no other way to add this synth track back.`
       : recorded
         ? `Remove ${track.name}. Undo restores the whole track, including recorded audio.`
         : `Remove ${track.name}. Undo restores it.`
@@ -142,7 +142,7 @@ function RemoveButton({ track }: { track: TrackState }) {
       </button>
       {builtIn && (
         <span id={warnId} className={styles.warn}>
-          Removing {track.name} can be undone from the Undo button, but this synth track can&rsquo;t be added back from this page.
+          Removing {track.name} can be undone from the Undo button; there is no other way to add this synth track back.
         </span>
       )}
     </>

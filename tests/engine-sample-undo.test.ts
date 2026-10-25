@@ -424,6 +424,81 @@ describe("undo status and track cap", () => {
     assert.equal(e.getSnapshot().canUndo, true, "a cap-blocked removal keeps its step")
     assert.match(e.getSnapshot().message ?? "", /Free a track slot/)
   })
+
+  test("a cap-blocked redo survives later edits and applies once a slot is free", () => {
+    const e = new LoopEngine()
+    const id = e.addSampleTrack("keys-am7-rhodes")!
+    e.undo()
+    assert.equal(e.getSnapshot().canRedo, true)
+    while (e.getSnapshot().tracks.length < MAX_TRACKS) assert.ok(e.addAudioTrack())
+
+    e.redo()
+    assert.equal(track(e, id), undefined)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().canRedo, true, "a cap-blocked redo must remain redoable")
+    assert.match(e.getSnapshot().message ?? "", /Free a track slot, then redo again\./)
+
+    // Both clearRedo() paths: a new mix step, then a coalesced continuation of it.
+    e.setTrack("drums", { volume: 0.5 })
+    e.setTrack("drums", { volume: 0.4 })
+    assert.equal(e.getSnapshot().canRedo, true, "the blocked redo survives later edits")
+    assert.equal(track(e, id), undefined)
+
+    e.removeTrack("keys")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+    assert.equal(e.getSnapshot().canRedo, true, "the freeing removal keeps the blocked redo")
+
+    e.redo()
+    assert.equal(track(e, id)?.kind, "sample")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().message, "Redone.")
+    assert.equal(e.getSnapshot().canRedo, false)
+  })
+
+  test("a new edit still clears an ordinary redo step", () => {
+    const e = new LoopEngine()
+    const id = e.addSampleTrack("keys-am7-rhodes")!
+    e.undo()
+    assert.equal(e.getSnapshot().canRedo, true)
+    e.setTrack("drums", { volume: 0.5 })
+    assert.equal(e.getSnapshot().canRedo, false, "an unblocked redo step is still cleared")
+    e.redo()
+    assert.equal(track(e, id), undefined)
+  })
+
+  test("a blocked retry needs intervening edits unwound before a removal swaps again", () => {
+    const e = new LoopEngine()
+    const keysBefore = e.getSnapshot().tracks.find((t) => t.id === "keys")!
+    while (e.getSnapshot().tracks.length < MAX_TRACKS) assert.ok(e.addAudioTrack())
+    e.removeTrack("keys")
+    const filler = e.addAudioTrack()!
+    e.undo()
+    assert.match(e.getSnapshot().message ?? "", /Free a track slot/)
+    assert.equal(track(e, "keys"), undefined)
+
+    // An unrelated edit lands above the waiting step. The next removal must not skip over it.
+    e.setTrack("drums", { volume: 0.2 })
+    e.removeTrack(filler)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+    e.undo()
+    assert.equal(track(e, filler)?.kind, "audio")
+    assert.equal(track(e, "keys"), undefined, "the removal did not reach past the mix step")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().message, "Undone.")
+
+    // Unwinding the intervening edit puts the blocked step back on top.
+    e.undo()
+    assert.equal(track(e, "drums")!.volume, 0.85)
+    assert.equal(track(e, "keys"), undefined)
+
+    // The next removal swaps with it, and the waiting restore applies.
+    e.removeTrack("loop-1")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+    e.undo()
+    assert.deepEqual(track(e, "keys"), keysBefore)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().message, "Undone.")
+  })
 })
 
 describe("export readiness", () => {
