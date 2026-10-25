@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react"
-import { chordAt, chordSymbol, formatNoteName, harmonicFunction, romanNumeral } from "@/lib/harmony/theory"
+import { chordAt, chordSymbol, formatNoteName, harmonicFunction, romanNumeral, slotInLoop } from "@/lib/harmony/theory"
 import { suggestNext } from "@/lib/harmony/suggest"
 import type { ChordSuggestion, Mode } from "@/lib/harmony/types"
 import { useAnimationFrame, useEngine } from "./useEngine"
@@ -48,6 +48,7 @@ export default function ChordLane() {
   const { engine, snap } = useEngine()
   const { harmony } = snap
   const { key, chords } = harmony
+  const bars = snap.bars
   const [open, setOpen] = useState<number | null>(null)
   const [draft, setDraft] = useState("")
   const [error, setError] = useState(false)
@@ -173,6 +174,7 @@ export default function ChordLane() {
         {chords.map((slot, i) => {
           const symbol = chordSymbol(key, slot.chord)
           const roman = romanNumeral(key, slot.chord)
+          const outside = !slotInLoop(harmony, slot, bars)
           return (
             <button
               key={slot.start}
@@ -183,9 +185,12 @@ export default function ChordLane() {
               className={styles.slot}
               data-fn={harmonicFunction(key, slot.chord)}
               data-open={index === i}
-              aria-label={`Bar ${bar(i)}, ${symbol}, ${roman}`}
+              data-out-of-loop={outside || undefined}
+              aria-label={`Bar ${bar(i)}, ${symbol}, ${roman}${outside ? `, outside the ${bars}-bar loop` : ""}`}
               aria-haspopup="dialog"
               aria-expanded={index === i}
+              disabled={outside}
+              title={outside ? `Outside the ${bars}-bar loop. Lengthen the loop to use this chord.` : undefined}
               onClick={() => {
                 if (index === i) close(true)
                 else {
@@ -201,6 +206,11 @@ export default function ChordLane() {
           )
         })}
       </div>
+      {chords.length > bars && (
+        <p className={styles.note}>
+          Chords in bars {bars + 1}–{chords.length} are outside the {bars}-bar loop. Lengthen the loop to use them.
+        </p>
+      )}
       {index !== null && (
         <div
           ref={dialogRef}

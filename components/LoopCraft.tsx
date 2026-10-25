@@ -7,7 +7,7 @@ import StartGate from "./StartGate"
 import StatusLine, { type Notice } from "./StatusLine"
 import TrackList from "./TrackList"
 import Transport from "./Transport"
-import { shortcutsEnabled, toggleRecord, useEngine } from "./useEngine"
+import { shortcutsEnabled, modalOpen, toggleRecord, useEngine } from "./useEngine"
 import { PADS } from "@/lib/audio/patterns"
 import styles from "./LoopCraft.module.css"
 
@@ -28,7 +28,7 @@ export default function LoopCraft() {
     let spaceHandled = false
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (editable(e.target)) return
+      if (modalOpen() || editable(e.target)) return
       const s = latest.current
       const key = e.key.toLowerCase()
       const mod = e.ctrlKey || e.metaKey

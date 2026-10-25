@@ -16,7 +16,7 @@ import {
 } from "@/lib/samples/library"
 import type { Mode } from "@/lib/harmony/types"
 import { MAX_TRACKS } from "@/lib/audio/types"
-import { useEngine } from "./useEngine"
+import { useEngine, setModalOpen } from "./useEngine"
 import { Play, Stop, X } from "./icons"
 import styles from "./Samples.module.css"
 
@@ -39,6 +39,7 @@ export default function Samples() {
   const [added, setAdded] = useState<string[]>([])
   const searchRef = useRef<HTMLInputElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
 
   const projectKey = snap.harmony.key
   const project = keyLabel(projectKey)
@@ -58,11 +59,39 @@ export default function Samples() {
   useEffect(() => {
     if (!open) return
     searchRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeShelf()
+    setModalOpen(true)
+    // Document-level so Escape and the Tab trap keep working if the focused control unmounts
+    // (for example the shelf's own Resume notice after the audio resumes).
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        closeShelf()
+        return
+      }
+      if (e.key !== "Tab") return
+      const container = dialogRef.current
+      if (!container) return
+      const items = Array.from(container.querySelectorAll<HTMLElement>("button, input, select, textarea")).filter((el) => !el.hasAttribute("disabled"))
+      if (!items.length) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (!container.contains(active)) {
+        e.preventDefault()
+        ;(e.shiftKey ? last : first).focus()
+      } else if (e.shiftKey && (active === first || active === container)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    document.addEventListener("keydown", onKey)
+    return () => {
+      setModalOpen(false)
+      document.removeEventListener("keydown", onKey)
+    }
   }, [open, closeShelf])
 
   // A preview belongs to the shelf: unmounting it must not leave the preview running.
@@ -118,13 +147,28 @@ export default function Samples() {
 
   return (
     <>
-      <button ref={triggerRef} type="button" className={styles.shelfButton} onClick={() => setOpen(true)}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={styles.shelfButton}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+      >
         Browse samples <span className={`mono ${styles.count}`}>{SAMPLE_CATALOG.length}</span>
       </button>
 
       {open && (
         <div className={styles.overlay} role="presentation" onPointerDown={(e) => e.target === e.currentTarget && closeShelf()}>
-          <div className={styles.panel} role="dialog" aria-modal="true" aria-labelledby="samples-title" data-testid="sample-shelf">
+          <div
+            ref={dialogRef}
+            className={styles.panel}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="samples-title"
+            data-testid="sample-shelf"
+            tabIndex={-1}
+          >
             <div className={styles.head}>
               <div>
                 <h2 id="samples-title" className={styles.title}>

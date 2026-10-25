@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type CSSProperties } from "react"
 import { PADS } from "@/lib/audio/patterns"
-import { shortcutsEnabled, useEngine, useShortcuts } from "./useEngine"
+import { shortcutsEnabled, modalOpen, useEngine, useShortcuts } from "./useEngine"
 import styles from "./Pads.module.css"
 
 export default function Pads() {
@@ -22,7 +22,7 @@ export default function Pads() {
   // Visual feedback for the global A S D F H J K L shortcuts (the engine call itself is made in LoopCraft).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!shortcutsEnabled() || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
+      if (!shortcutsEnabled() || modalOpen() || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return
       const i = PADS.findIndex((p) => p.key === e.key.toLowerCase())

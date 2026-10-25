@@ -44,7 +44,7 @@ function SampleInfo({ track }: { track: TrackState }) {
         {fit.reason}
       </p>
       <p className={styles.sampleNote}>
-        A fixed-pitch loop rendered by LoopCraft&rsquo;s synths. It keeps its own key instead of following the project key. change the key and this
+        A fixed-pitch loop rendered by LoopCraft&rsquo;s synths. It keeps its own key instead of following the project key. Change the key and this
         panel tells you if it still fits.
       </p>
     </div>
