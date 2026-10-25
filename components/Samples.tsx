@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   SAMPLE_CATALOG,
   SAMPLE_TYPES,
@@ -38,30 +38,35 @@ export default function Samples() {
   const [modeFilter, setModeFilter] = useState<string>("any")
   const [added, setAdded] = useState<string[]>([])
   const searchRef = useRef<HTMLInputElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   const projectKey = snap.harmony.key
   const project = keyLabel(projectKey)
   const atMax = snap.tracks.length >= MAX_TRACKS
   const auditioningId = snap.audition?.sampleId ?? null
   const auditioningSample = auditioningId ? findSample(auditioningId) : undefined
+  // The overlay covers the app's own resume banner and status line, so the shelf explains a paused
+  // context itself instead of letting Preview fail silently behind the scrim.
+  const audioBlocked = snap.status === "suspended"
 
-  const closeShelf = () => {
+  const closeShelf = useCallback(() => {
     engine.stopAudition()
     setOpen(false)
-  }
+    triggerRef.current?.focus()
+  }, [engine])
 
   useEffect(() => {
     if (!open) return
     searchRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        engine.stopAudition()
-        setOpen(false)
-      }
+      if (e.key === "Escape") closeShelf()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [open, engine])
+  }, [open, closeShelf])
+
+  // A preview belongs to the shelf: unmounting it must not leave the preview running.
+  useEffect(() => () => engine.stopAudition(), [engine])
 
   const keys = useMemo(() => {
     const seen = new Map<string, string>()
@@ -113,7 +118,7 @@ export default function Samples() {
 
   return (
     <>
-      <button type="button" className={styles.shelfButton} onClick={() => setOpen(true)}>
+      <button ref={triggerRef} type="button" className={styles.shelfButton} onClick={() => setOpen(true)}>
         Browse samples <span className={`mono ${styles.count}`}>{SAMPLE_CATALOG.length}</span>
       </button>
 
@@ -133,6 +138,14 @@ export default function Samples() {
                 <X size={18} />
               </button>
             </div>
+            {audioBlocked && (
+              <div className={styles.audioNotice} role="status">
+                <span>Preview is paused because the browser paused the audio.</span>
+                <button type="button" className={styles.resume} onClick={() => void engine.start()}>
+                  Resume audio
+                </button>
+              </div>
+            )}
             <span className={styles.srOnly} role="status" aria-live="polite">
               {auditioningSample
                 ? `Previewing ${auditioningSample.name}${auditioningSample.key ? `, ${keyLabel(auditioningSample.key)}` : ", no pitch"}.`
@@ -236,7 +249,8 @@ export default function Samples() {
                                 ? `Stop preview of ${row.sample.name}`
                                 : `Preview ${row.sample.name}${row.sample.key ? `, ${keyLabel(row.sample.key)}` : ", no pitch"}`
                             }
-                            title={auditioningId === row.sample.id ? "Stop preview" : "Preview without adding it to the session"}
+                            title={audioBlocked ? "Resume the audio to preview" : auditioningId === row.sample.id ? "Stop preview" : "Preview without adding it to the session"}
+                            disabled={audioBlocked}
                             onClick={() => togglePreview(row.sample)}
                           >
                             {auditioningId === row.sample.id ? <Stop size={14} /> : <Play size={14} />}

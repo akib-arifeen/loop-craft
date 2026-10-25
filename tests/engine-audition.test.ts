@@ -157,6 +157,53 @@ describe("sample audition invalidation", () => {
   })
 })
 
+describe("committing a sample ends its preview", () => {
+  test("adding the previewed sample stops the preview and creates the track", () => {
+    const e = new AuditionProbe()
+    assert.equal(e.auditionSample("keys-am7-rhodes"), true)
+    const id = e.addSampleTrack("keys-am7-rhodes")
+
+    assert.equal(e.getSnapshot().audition, null)
+    assert.equal(e.stops, 1)
+    const added = e.getDocument().tracks.find((t) => t.id === id)
+    assert.equal(added?.kind, "sample")
+    assert.equal(added?.sampleId, "keys-am7-rhodes")
+    assert.equal(e.getDocument().tracks.filter((t) => t.kind === "sample").length, 1)
+  })
+
+  test("adding a different sample also ends the preview (one sound source in the shelf)", () => {
+    const e = new AuditionProbe()
+    assert.equal(e.auditionSample("keys-am7-rhodes"), true)
+    assert.equal(e.addSampleTrack("drums-boom-bap") !== null, true)
+    assert.equal(e.getSnapshot().audition, null)
+    assert.equal(e.stops, 1)
+  })
+
+  test("a refused add leaves the preview playing", () => {
+    const e = new AuditionProbe()
+    assert.equal(e.auditionSample("keys-am7-rhodes"), true)
+    assert.equal(e.addSampleTrack("not-in-the-library"), null)
+    assert.equal(e.getSnapshot().audition?.sampleId, "keys-am7-rhodes")
+    assert.equal(e.stops, 0)
+
+    for (let i = 0; i < 3; i++) e.addAudioTrack()
+    assert.equal(e.getDocument().tracks.length, 8)
+    assert.equal(e.addSampleTrack("drums-boom-bap"), null)
+    assert.equal(e.getSnapshot().audition?.sampleId, "keys-am7-rhodes", "a full session must not stop the preview it refused to commit")
+    assert.equal(e.stops, 0)
+  })
+
+  test("the committed sample is still undoable after its preview ends", () => {
+    const e = new AuditionProbe()
+    assert.equal(e.auditionSample("drums-boom-bap"), true)
+    e.addSampleTrack("drums-boom-bap")
+    assert.equal(e.getSnapshot().canUndo, true)
+    e.undo()
+    assert.equal(e.getDocument().tracks.filter((t) => t.kind === "sample").length, 0)
+    assert.equal(e.getSnapshot().audition, null)
+  })
+})
+
 type AudioProbe = {
   ctx: { state: AudioContextState }
   counters: { channels: number; resumes: number }
