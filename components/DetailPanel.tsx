@@ -97,8 +97,11 @@ function NameEditor({ track }: { track: TrackState }) {
 function RemoveButton({ track }: { track: TrackState }) {
   const { engine } = useEngine()
   const [confirming, setConfirming] = useState(false)
-  const guarded = track.kind === "audio" && track.hasAudio
   const undoable = track.kind === "audio" || track.kind === "sample"
+  // A recorded loop, a drum pattern and a bass or keys part are the only things one click can lose
+  // for good: recorded audio because it is a performance, and the built-in synth tracks because this
+  // page has no way to add one back. They ask twice; the mix-only and empty tracks do not.
+  const guarded = track.kind === "drums" || track.kind === "bass" || track.kind === "keys" || (track.kind === "audio" && track.hasAudio)
 
   useEffect(() => {
     if (!confirming) return
@@ -110,9 +113,13 @@ function RemoveButton({ track }: { track: TrackState }) {
     ? confirming
       ? "Remove it. Undo restores the whole track, including recorded audio."
       : `Remove ${track.name}. Undo restores it.`
-    : confirming
-      ? "Remove it."
-      : `Remove ${track.name}.`
+    : guarded
+      ? confirming
+        ? "Remove it. This can't be undone."
+        : `Remove ${track.name}. This can't be undone, and the synth track can't be added back from this page.`
+      : confirming
+        ? "Remove it."
+        : `Remove ${track.name}.`
 
   return (
     <button
