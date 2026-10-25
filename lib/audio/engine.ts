@@ -92,17 +92,21 @@ interface UndoEntry {
   fields?: string[]
   /** Mix entries only: performance.now() when last updated. */
   at?: number
-  /** Sample add/remove entries: the whole track (null when absent), its slot and the selection on each side. */
+  /** Whole-track add/remove entries (sample or audio): the track (null when absent), its slot and the selection on each side. */
   track?: TrackEntry
 }
-/** Whole-track state for a sample add/remove step. */
+/** Whole-track state for a sample/audio add or remove step. */
 interface TrackEntry {
   before: TrackState | null
   after: TrackState | null
   index: number
   selectedBefore: string | null
   selectedAfter: string | null
+  /** An audio track's recorded buffer: the removal step keeps it alive so Undo can restore the loop. */
+  buffer?: AudioBuffer | null
 }
+/** Why a whole-track undo/redo step could not be applied. */
+type TrackApplyResult = "applied" | "cap" | "conflict" | "stale-buffer"
 const MIX_COALESCE_MS = 600
 const mixOf = (t: TrackState): MixState => ({
   name: t.name, volume: t.volume, pan: t.pan, muted: t.muted, soloed: t.soloed, fx: { ...t.fx },
@@ -187,6 +191,7 @@ export class LoopEngine implements LoopEngineApi {
   // render queue
   private queue: Promise<void> = Promise.resolve()
   private pendingRenders = new Set<string>()
+  private rendersInFlight = new Set<string>()
   private retimeQueued = false
   private retiming = false
 
@@ -212,13 +217,22 @@ export class LoopEngine implements LoopEngineApi {
 
   // ── snapshot ──
   private buildSnapshot(): EngineSnapshot {
+    const recordedLoops = this.tracks.reduce((n, t) => n + (t.kind === "audio" && this.buffers.has(t.id) ? 1 : 0), 0)
+    const expectedL = this.ctx ? loopFrameCount(this.bpm, this.bars, this.sr) : 0
+    const rendering = this.pendingRenders.size > 0 || this.rendersInFlight.size > 0
     return {
       status: this.status,
       error: this.error,
       playing: this.playing,
       bpm: this.bpm,
       bars: this.bars,
-      tempoLocked: this.tracks.some((t) => t.kind === "audio" && this.buffers.has(t.id)),
+      tempoLocked: recordedLoops > 0,
+      recordedLoops,
+      loopFrames: this.L,
+      sampleRate: this.sr,
+      retiming: this.retiming,
+      rendering,
+      exportReady: this.audioReady && !this.retiming && !rendering && this.L === expectedL,
       metronome: this.metronome,
       masterVolume: this.masterVolume,
       tracks: this.tracks.slice(),
@@ -437,6 +451,7 @@ export class LoopEngine implements LoopEngineApi {
       this.countInSrc = null
       this.noise = null
       this.pendingRenders.clear()
+      this.rendersInFlight.clear()
       this.startPromise = null
       this.status = "idle"
       this.error = null
@@ -457,14 +472,20 @@ export class LoopEngine implements LoopEngineApi {
     this.pendingRenders.add(id)
     this.enqueue(this.track(id)?.name ?? id, async () => {
       this.pendingRenders.delete(id)
-      const t = this.track(id)
-      if (!t || t.kind === "audio") return
-      const sr = this.sr
-      const L = this.L
-      const bars = this.loopBars
-      const buffer = await synthSource(t, this.harmony).render({ sampleRate: sr, loopFrames: L, bars })
-      if (L !== this.L || !this.track(id)) return // retimed or removed meanwhile; the retime job re-renders
-      this.applyBuffer(id, buffer)
+      this.rendersInFlight.add(id)
+      try {
+        const t = this.track(id)
+        if (!t || t.kind === "audio") return
+        const sr = this.sr
+        const L = this.L
+        const bars = this.loopBars
+        const buffer = await synthSource(t, this.harmony).render({ sampleRate: sr, loopFrames: L, bars })
+        if (L !== this.L || !this.track(id)) return // retimed or removed meanwhile; the retime job re-renders
+        this.applyBuffer(id, buffer)
+      } finally {
+        this.rendersInFlight.delete(id)
+        this.emit()
+      }
     })
   }
 
@@ -480,6 +501,7 @@ export class LoopEngine implements LoopEngineApi {
     if (!this.ctx || !this.audioReady || this.retimeQueued) return
     this.retimeQueued = true
     this.retiming = true
+    this.emit()
     this.enqueue("the new tempo", async () => {
       this.retimeQueued = false
       try {
@@ -528,6 +550,8 @@ export class LoopEngine implements LoopEngineApi {
         this.emit()
       } finally {
         this.retiming = this.retimeQueued
+        // A failed job also lands here: the snapshot must stop claiming the export is current.
+        this.emit()
       }
     })
   }
@@ -786,9 +810,14 @@ export class LoopEngine implements LoopEngineApi {
     if (b === this.bpm) return
     this.clearAudition()
     this.doCancelRecord()
+    // Accepting a new loop length invalidates every buffer recorded at the old length. Drop that
+    // history now, before the asynchronous retime can fail or be undone, so a stale recording can
+    // never be restored into the new length.
+    const purged = this.purgeHistory()
     this.bpm = b
     this.mixer?.setTempo(b)
     this.emit()
+    if (purged > 0) this.setMessage("Old recorded-audio undo steps were cleared for the new tempo.")
     if (this.ctx) this.enqueueRetime()
   }
   private doSetBars(bars: Bars): void {
@@ -800,8 +829,11 @@ export class LoopEngine implements LoopEngineApi {
     if (bars === this.bars) return
     this.clearAudition()
     this.doCancelRecord()
+    // See doSetBpm: purge synchronously, not only after a successful retime.
+    const purged = this.purgeHistory()
     this.bars = bars
     this.emit()
+    if (purged > 0) this.setMessage("Old recorded-audio undo steps were cleared for the new loop length.")
     if (this.ctx) this.enqueueRetime()
   }
   private doSetMetronome(on: boolean): void {
@@ -1002,6 +1034,7 @@ export class LoopEngine implements LoopEngineApi {
     this.clearAudition()
     if (this.pending?.trackId === id) this.doCancelRecord()
     const selectedBefore = this.selectedTrackId
+    const buffer = this.buffers.get(id) ?? null
     this.disposeTrackAudio(id)
     const idx = this.tracks.findIndex((x) => x.id === id)
     this.tracks = this.tracks.filter((x) => x.id !== id)
@@ -1009,17 +1042,21 @@ export class LoopEngine implements LoopEngineApi {
     if (this.selectedTrackId === id) {
       this.selectedTrackId = this.tracks.length ? this.tracks[Math.min(idx, this.tracks.length - 1)].id : null
     }
-    // Only a sample track's removal is undoable; removing any other kind keeps its existing behaviour.
-    if (t.kind === "sample") {
+    // A sample or a loop track is a whole item the user can lose in one click, so its removal is
+    // one undo step (with the recorded buffer for audio). The built-in synth tracks keep their
+    // existing behaviour: removing one drops its own mix history.
+    const undoable = t.kind === "sample" || t.kind === "audio"
+    if (undoable) {
       this.pushUndo({
         trackId: id,
         before: {},
         after: {},
-        track: { before: cloneTrack(t), after: null, index: idx, selectedBefore, selectedAfter: this.selectedTrackId },
+        track: { before: cloneTrack(t), after: null, index: idx, selectedBefore, selectedAfter: this.selectedTrackId, buffer },
       })
     }
     this.updateAllChannels()
     this.emit()
+    if (undoable) this.setMessage("Track removed. Undo restores it.")
   }
   private disposeTrackAudio(id: string): void {
     if (this.ctx) this.stopVoice(id, this.ctx.currentTime, true)
@@ -1032,7 +1069,7 @@ export class LoopEngine implements LoopEngineApi {
     this.undoStack = this.undoStack.filter((e) => e.trackId !== id)
     this.redoStack = this.redoStack.filter((e) => e.trackId !== id)
   }
-  /** Import/share replace the whole synth/sample set; an old sample add/remove step can't apply to the new document. */
+  /** Import/share replace the whole synth/sample set; an old sample/audio add or removal step can't apply to the new document. */
   private dropTrackEntries(): void {
     this.undoStack = this.undoStack.filter((e) => !e.track)
     this.redoStack = this.redoStack.filter((e) => !e.track)
@@ -1100,16 +1137,19 @@ export class LoopEngine implements LoopEngineApi {
     for (const e of [...this.undoStack, ...this.redoStack]) {
       if (e.before.buffer) seen.add(e.before.buffer)
       if (e.after.buffer) seen.add(e.after.buffer)
+      if (e.track?.buffer) seen.add(e.track.buffer)
     }
     let total = 0
     for (const b of seen) total += b.length
     return total
   }
-  /** After a retime, drop every history entry that references an AudioBuffer (recorded at the old length/tempo; it could never be applied). */
-  private purgeHistory(): void {
-    const hasBuffer = (e: UndoEntry) => !!e.before.buffer || !!e.after.buffer
+  /** After a retime, drop every history entry that references an AudioBuffer (recorded at the old length/tempo; it could never be applied). Returns how many steps were dropped. */
+  private purgeHistory(): number {
+    const hasBuffer = (e: UndoEntry) => !!e.before.buffer || !!e.after.buffer || !!e.track?.buffer
+    const before = this.undoStack.length + this.redoStack.length
     this.undoStack = this.undoStack.filter((e) => !hasBuffer(e))
     this.redoStack = this.redoStack.filter((e) => !hasBuffer(e))
+    return before - (this.undoStack.length + this.redoStack.length)
   }
   private doToggleStep(id: string, voice: DrumVoice, step: number): void {
     if (!isStr(id)) return
@@ -1218,32 +1258,46 @@ export class LoopEngine implements LoopEngineApi {
     return true
   }
   /**
-   * Undo/redo for one sample add/remove step. Returns false when it can't be applied here (the other
-   * side already exists, or the track cap would be exceeded), so the caller drops it instead of
-   * clobbering a same-id track introduced by an import or a re-used id.
+   * Undo/redo for one whole-track add/remove step. Returns why it could not apply, so the caller can
+   * keep a cap-blocked step for a retry instead of dropping it. A recorded buffer is only restored
+   * when its frame length matches the current loop; a retime may never put old audio on the new grid.
    */
-  private applyTrackEntry(e: UndoEntry, side: "before" | "after"): boolean {
+  private applyTrackEntry(e: UndoEntry, side: "before" | "after"): TrackApplyResult {
     const entry = e.track!
     const target = entry[side]
     const existing = this.track(e.trackId)
     if (!target) {
-      if (!existing) return false
+      if (!existing) return "conflict"
       this.disposeTrackAudio(e.trackId)
       this.tracks = this.tracks.filter((t) => t.id !== e.trackId)
     } else {
-      if (existing || this.tracks.length >= MAX_TRACKS) return false
+      if (entry.buffer && (this.retiming || entry.buffer.length !== this.L)) return "stale-buffer"
+      if (existing) return "conflict"
+      if (this.tracks.length >= MAX_TRACKS) return "cap"
       const t = cloneTrack(target)
-      t.hasAudio = false
-      t.peaks = []
+      if (!entry.buffer) {
+        t.hasAudio = false
+        t.peaks = []
+      }
       const at = clamp(entry.index, 0, this.tracks.length)
       this.tracks = [...this.tracks.slice(0, at), t, ...this.tracks.slice(at)]
       this.makeChannel(t)
-      this.enqueueRender(t.id)
+      if (entry.buffer) this.applyBuffer(t.id, entry.buffer)
+      else this.enqueueRender(t.id)
     }
     this.selectedTrackId = side === "before" ? entry.selectedBefore : entry.selectedAfter
     if (!this.track(this.selectedTrackId ?? "")) this.selectedTrackId = this.tracks[0]?.id ?? null
     this.updateAllChannels()
-    return true
+    return "applied"
+  }
+  private applyUndoEntry(e: UndoEntry, side: "before" | "after"): TrackApplyResult {
+    if (e.track) return this.applyTrackEntry(e, side)
+    return this.applyContent(e.trackId, side === "before" ? e.before : e.after) ? "applied" : "stale-buffer"
+  }
+  private noteApplyFailure(result: Exclude<TrackApplyResult, "applied">, side: "undo" | "redo"): void {
+    if (result === "cap") this.setMessage(side === "undo" ? "Free a track slot, then undo again." : "Free a track slot, then redo again.")
+    else if (result === "stale-buffer") this.setMessage("That edit used audio from an earlier loop length, so it can't be applied now.")
+    else this.setMessage("That step no longer applies to this session.")
   }
   private doUndo(): void {
     let e = this.undoStack.pop()
@@ -1252,8 +1306,17 @@ export class LoopEngine implements LoopEngineApi {
       this.emit()
       return
     }
-    const applied = e.track ? this.applyTrackEntry(e, "before") : this.applyContent(e.trackId, e.before)
-    if (applied) this.redoStack.push(e)
+    const result = this.applyUndoEntry(e, "before")
+    if (result === "applied") {
+      this.redoStack.push(e)
+      this.setMessage("Undone.")
+    } else if (result === "cap") {
+      // Keep the step at the top: once a slot is free, the same Undo can apply it.
+      this.undoStack.push(e)
+      this.noteApplyFailure(result, "undo")
+    } else {
+      this.noteApplyFailure(result, "undo")
+    }
     this.emit()
   }
   private doRedo(): void {
@@ -1263,8 +1326,16 @@ export class LoopEngine implements LoopEngineApi {
       this.emit()
       return
     }
-    const applied = e.track ? this.applyTrackEntry(e, "after") : this.applyContent(e.trackId, e.after)
-    if (applied) this.undoStack.push(e)
+    const result = this.applyUndoEntry(e, "after")
+    if (result === "applied") {
+      this.undoStack.push(e)
+      this.setMessage("Redone.")
+    } else if (result === "cap") {
+      this.redoStack.push(e)
+      this.noteApplyFailure(result, "redo")
+    } else {
+      this.noteApplyFailure(result, "redo")
+    }
     this.emit()
   }
 
@@ -1505,6 +1576,14 @@ export class LoopEngine implements LoopEngineApi {
 
   async exportWav(loops = 2): Promise<Blob> {
     if (!this.ctx) throw new Error("Start the engine first")
+    if (!this.audioReady) throw new Error("The audio is still starting. Try exporting again in a moment.")
+    if (this.retiming) throw new Error("Wait for the tempo change to finish, then export again.")
+    if (this.L !== loopFrameCount(this.bpm, this.bars, this.sr)) {
+      throw new Error("The tempo change didn't finish, so the audio doesn't match the current tempo. Set the tempo or loop length again.")
+    }
+    if (this.pendingRenders.size > 0 || this.rendersInFlight.size > 0) {
+      throw new Error("A track is still rendering. Try exporting again in a moment.")
+    }
     this.exporting = true
     this.emit()
     try {
@@ -1599,6 +1678,7 @@ export class LoopEngine implements LoopEngineApi {
     }
     this.dropHistory(HARMONY)
     this.dropTrackEntries()
+    if (changedTempo) this.purgeHistory()
     this.harmony = data.harmony ? cloneHarmony(data.harmony) : demoHarmony()
     this.tracks = [...shared, ...audioTracks]
     for (const t of shared) this.makeChannel(t)
@@ -1635,7 +1715,7 @@ export class LoopEngine implements LoopEngineApi {
     }
     const changedTempo = project.bpm !== this.bpm || project.bars !== this.bars
     if (this.snap.tempoLocked && changedTempo) {
-      const error = "Clear the recorded loops before importing a project with a different tempo"
+      const error = "Clear the recorded loops before importing a project with a different tempo or loop length"
       this.setMessage(error)
       return { ok: false, error }
     }
@@ -1651,6 +1731,7 @@ export class LoopEngine implements LoopEngineApi {
     }
     this.dropHistory(HARMONY)
     this.dropTrackEntries()
+    if (changedTempo) this.purgeHistory()
     this.harmony = cloneHarmony(project.harmony)
     this.tracks = [...incoming, ...audioTracks]
     for (const t of incoming) this.makeChannel(t)

@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react"
 import { chordAt, chordSymbol, formatNoteName, harmonicFunction, romanNumeral, slotInLoop } from "@/lib/harmony/theory"
 import { suggestNext } from "@/lib/harmony/suggest"
 import type { ChordSuggestion, Mode } from "@/lib/harmony/types"
-import { useAnimationFrame, useEngine } from "./useEngine"
+import { useAnimationFrame, setModalOpen, useEngine } from "./useEngine"
 import styles from "./ChordLane.module.css"
 
 const TONICS = [
@@ -75,13 +75,16 @@ export default function ChordLane() {
 
   const index = open !== null && open < chords.length ? open : null
 
-  const close = (restoreFocus: boolean) => {
-    const i = open
-    setOpen(null)
-    setDraft("")
-    setError(false)
-    if (restoreFocus && i !== null) slotRefs.current[i]?.focus()
-  }
+  const close = useCallback(
+    (restoreFocus: boolean) => {
+      const i = open
+      setOpen(null)
+      setDraft("")
+      setError(false)
+      if (restoreFocus && i !== null) slotRefs.current[i]?.focus()
+    },
+    [open],
+  )
 
   // Outside click closes (the slot itself toggles via its own onClick).
   useEffect(() => {
@@ -89,18 +92,31 @@ export default function ChordLane() {
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node | null
       if (!t || dialogRef.current?.contains(t) || slotRefs.current[index]?.contains(t)) return
-      setOpen(null)
-      setDraft("")
-      setError(false)
+      close(false)
     }
     document.addEventListener("pointerdown", onDown)
     return () => document.removeEventListener("pointerdown", onDown)
-  }, [index])
+  }, [index, close])
 
-  // Move focus into the dialog when it opens.
+  // Focus the first suggestion when the popover opens (not the dialog container), close on Escape
+  // wherever focus is, and gate the global single-key shortcuts while it is up.
   useEffect(() => {
-    if (index !== null) dialogRef.current?.focus()
-  }, [index])
+    if (index === null) return
+    setModalOpen(true)
+    const first = dialogRef.current?.querySelector<HTMLButtonElement>("[data-chord-suggestion]")
+    ;(first ?? dialogRef.current)?.focus()
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return
+      e.preventDefault()
+      e.stopPropagation()
+      close(true)
+    }
+    document.addEventListener("keydown", onKey, true)
+    return () => {
+      setModalOpen(false)
+      document.removeEventListener("keydown", onKey, true)
+    }
+  }, [index, close])
 
   const suggestions = useMemo(() => {
     if (index === null) return []
@@ -111,10 +127,10 @@ export default function ChordLane() {
   }, [index, chords, key])
 
   const onDialogKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") {
+    // A held Enter that opened the popover must not repeat into the newly focused suggestion.
+    if (e.repeat && (e.key === "Enter" || e.key === " ")) {
       e.preventDefault()
       e.stopPropagation()
-      close(true)
       return
     }
     if (e.key === "Tab") {
@@ -191,6 +207,12 @@ export default function ChordLane() {
               aria-expanded={index === i}
               disabled={outside}
               title={outside ? `Outside the ${bars}-bar loop. Lengthen the loop to use this chord.` : undefined}
+              onKeyDown={(e) => {
+                if (e.repeat && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }
+              }}
               onClick={() => {
                 if (index === i) close(true)
                 else {
@@ -226,7 +248,7 @@ export default function ChordLane() {
           <ul className={styles.list}>
             {suggestions.map((s) => (
               <li key={`${s.roman}-${s.category}`}>
-                <button type="button" className={styles.row} onClick={() => choose(s)}>
+                <button type="button" className={styles.row} data-chord-suggestion onClick={() => choose(s)}>
                   <span className={styles.rowHead}>
                     <span className={styles.rowSymbol}>{chordSymbol(key, s.chord)}</span>
                     <span className={`mono ${styles.rowRoman}`}>{s.roman}</span>

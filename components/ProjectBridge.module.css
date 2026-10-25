@@ -16,6 +16,13 @@
   border-color: var(--color-ink-3);
 }
 
+@media (min-width: 360px) and (max-width: 719.98px) {
+  .trigger {
+    width: var(--size-control-xl);
+    height: var(--size-control-xl);
+  }
+}
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -168,5 +175,14 @@
 
   .code {
     font-size: var(--text-base);
+  }
+
+  .close {
+    width: var(--size-touch);
+    height: var(--size-touch);
+  }
+
+  .btn {
+    min-height: var(--size-touch);
   }
 }

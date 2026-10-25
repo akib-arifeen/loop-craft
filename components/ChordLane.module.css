@@ -221,6 +221,7 @@
 
   .key .select {
     flex: 1;
+    height: var(--size-touch);
   }
 
   .slots {

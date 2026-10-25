@@ -29,6 +29,7 @@ export const Redo = (p: P) => <Svg {...p}><path d="m15 7 4.5 4.5L15 16" /><path 
 export const Metronome = (p: P) => <Svg {...p}><path d="M9 3h6l3.5 17h-13z" /><path d="m12 15 4-8" /></Svg>
 export const Download = (p: P) => <Svg {...p}><path d="M12 4v11" /><path d="m7.5 11 4.5 4.5 4.5-4.5" /><path d="M5 20h14" /></Svg>
 export const Link = (p: P) => <Svg {...p}><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></Svg>
+export const Check = (p: P) => <Svg {...p}><path d="m5 12.5 4.5 4.5L19 7" /></Svg>
 export const Mic = (p: P) => <Svg {...p}><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0" /><path d="M12 17.5V21" /></Svg>
 export const Grid = (p: P) => <Svg {...p}><rect x="4" y="4" width="6.5" height="6.5" rx="1" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1" /></Svg>
 export const Trash = (p: P) => <Svg {...p}><path d="M4.5 7h15" /><path d="M9.5 7V4.5h5V7" /><path d="m6.5 7 1 12.5h9l1-12.5" /></Svg>

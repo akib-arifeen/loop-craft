@@ -77,6 +77,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  position: relative;
 }
 
 .step {
@@ -84,6 +85,15 @@
   height: var(--size-control-m);
   font-size: var(--text-2xl);
   line-height: 1;
+}
+
+.step[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.step[aria-disabled="true"]:hover {
+  background: var(--color-paper-3);
 }
 
 .bpmValue {
@@ -108,12 +118,14 @@
 .segLabel {
   font-size: var(--text-xs);
   color: var(--color-ink-3);
+  white-space: nowrap;
 }
 
 .seg {
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  position: relative;
 }
 
 .segBtn {
@@ -128,8 +140,54 @@
   border-color: transparent;
 }
 
+/* Loop length is still unavailable while recorded loops exist, but the control stays focusable so
+   its title, description and the status message can explain why. */
+.segBtn[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.segBtn[aria-disabled="true"]:hover {
+  background: var(--color-paper-3);
+}
+
+.segBtn[aria-disabled="true"][aria-checked="true"]:hover {
+  background: var(--color-accent);
+}
+
+.lockNote,
+.tempoLockNote {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The one-row header has room to state the reason visibly at full page width. */
+@media (min-width: 1280px) {
+  .lockNote {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0 0 0 var(--space-2);
+    overflow: visible;
+    clip-path: none;
+    font-size: var(--text-xs);
+    color: var(--color-ink-3);
+  }
+}
+
 .segLabel {
   margin-left: var(--space-1);
+}
+
+.barsLock {
+  display: inline-flex;
+  align-items: center;
 }
 
 .tools {
@@ -149,6 +207,11 @@
   background: var(--color-accent);
   color: var(--color-accent-ink);
   border-color: transparent;
+}
+
+.icon[data-copied="true"] {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 .meterTrack {
@@ -180,12 +243,24 @@
   color: var(--color-ink-2);
 }
 
+.wavDur {
+  font-size: var(--text-2xs);
+  font-weight: 400;
+  color: var(--color-ink-3);
+}
+
+@media (max-width: 959.98px) {
+  .wavDur {
+    display: none;
+  }
+}
+
 
 /* Narrow: exactly two rows, no wrapping inside a row.
    Row 1: wordmark play rec bpm ~ share WAV   |   Row 2: bars metronome shortcuts undo redo ~ meter */
 @media (max-width: 719.98px) {
   .header {
-    gap: var(--space-2) var(--space-2);
+    gap: var(--space-2) var(--space-1);
     padding: var(--space-2);
   }
   .o1 { order: 1; }
@@ -206,7 +281,11 @@
   .o6 { order: 10; gap: var(--space-half); }
   .o8 { order: 11; margin-left: auto; height: var(--size-control-m); }
   .bpmValue { min-width: 0; }
+  /* The loop-length group carries the lock icon on phones; the BPM lock icon would cost the row its fit. */
+  .bpmValue svg { display: none; }
   .segLabel { display: none; }
+  .o9 { width: var(--size-touch); height: var(--size-touch); }
+  .export { min-height: var(--size-touch); min-width: var(--size-touch); }
 }
 
 @media (max-width: 399.98px) {
@@ -214,10 +293,21 @@
     gap: var(--space-2) var(--space-1);
     padding: var(--space-2) var(--space-1);
   }
-  .round { width: var(--size-control-l); height: var(--size-control-l); }
-  .step, .segBtn, .icon { width: var(--size-control-m); height: var(--size-control-m); }
-  .export { padding: 0 var(--space-2); }
+  .round { width: var(--size-touch); height: var(--size-touch); }
+  .step { width: var(--size-control-l); height: var(--size-control-l); }
+  .segBtn, .icon { width: var(--size-control-xl); height: var(--size-control-xl); }
+  .o9 { width: var(--size-touch); height: var(--size-touch); }
+  .export { min-height: var(--size-touch); min-width: var(--size-touch); padding: 0 var(--space-2); }
   .tools { gap: var(--space-half); }
+}
+
+/* 360–379 px: 40 px icons would not fit beside the meter; 36 px still beats the old 32 px. */
+@media (max-width: 379.98px) {
+  .segBtn, .o6 .icon { width: var(--size-control-l); height: var(--size-control-l); }
+}
+
+@media (max-width: 359.98px) {
+  .segBtn, .o6 .icon { width: var(--size-control-m); height: var(--size-control-m); }
 }
 
 /* Narrow phones: the WAV caption and the BPM caption give way so row 1 never wraps. The caption stays
@@ -235,7 +325,7 @@
   .label { display: none; }
 }
 
-@media (max-width: 359.98px) {
+@media (max-width: 379.98px) {
   .wordmark {
     position: absolute;
     width: 1px;
@@ -249,7 +339,7 @@
 
 /* Embed and small laptops (e.g. the portfolio's 800x520 frame): keep the header on one row. */
 @media (min-width: 720px) and (max-width: 959.98px) {
-  .header { column-gap: var(--space-2); }
+  .header { column-gap: var(--space-1); }
   .segLabel { display: none; }
   .label { display: none; }
 }

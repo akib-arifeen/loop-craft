@@ -181,3 +181,15 @@
     width: var(--size-cell);
   }
 }
+
+/* Phones: mute/solo and the volume slider get a full 44 px touch target. */
+@media (max-width: 719.98px) {
+  .ms {
+    width: var(--size-touch);
+    height: var(--size-touch);
+  }
+
+  .volume {
+    height: var(--size-touch);
+  }
+}

@@ -432,7 +432,7 @@ export function sampleFit(sample: SampleLoop, projectKey: Key): SampleFitInfo {
   return {
     fit: "clash",
     group: 2,
-    label: "Clashes",
+    label: "Out of key",
     reason: `Contains ${listed}, which ${names.length === 1 ? "is" : "are"} not in ${project}.`,
     clashes: names,
   }

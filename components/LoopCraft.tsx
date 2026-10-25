@@ -20,9 +20,11 @@ export default function LoopCraft() {
   const notify = (text: string) => setNotice((n) => ({ text, n: (n?.n ?? 0) + 1 }))
 
   useEffect(() => {
+    // Form controls own every key: typing in a field, opening a select, and a slider's own keys
+    // must not turn into transport commands.
     const editable = (t: EventTarget | null) => {
       const el = t as HTMLElement | null
-      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)
+      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)
     }
 
     let spaceHandled = false
@@ -47,14 +49,19 @@ export default function LoopCraft() {
       if (mod || e.altKey || !shortcutsEnabled()) return
 
       if (e.key === " ") {
-        // Keyboard focus on a control: let the browser activate it instead of toggling play.
+        // Space is the transport key. Before the audio starts, leave it to the start button.
+        if (s.status !== "ready" && s.status !== "suspended") return
+        // ARIA radio/switch controls own Space, as their users expect; ordinary buttons do not.
         const el = e.target as HTMLElement | null
-        if (el?.closest?.('button, [role="button"], [role="radio"], [role="switch"]') && el.matches(":focus-visible")) return
+        if (el?.closest?.('[role="radio"], [role="switch"]')) return
+        // Always consume Space here: a focused button must not also activate on keyup. Keyboard
+        // users activate buttons with Enter instead, so Space cannot mute, remove or record by
+        // accident when they asked for play/pause.
         e.preventDefault()
         if (e.repeat) return
         spaceHandled = true
         if (s.status === "ready") engine.togglePlay()
-        else if (s.status === "suspended") void engine.start()
+        else void engine.start()
         return
       }
       if (s.status !== "ready") return

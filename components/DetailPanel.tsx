@@ -98,6 +98,7 @@ function RemoveButton({ track }: { track: TrackState }) {
   const { engine } = useEngine()
   const [confirming, setConfirming] = useState(false)
   const guarded = track.kind === "audio" && track.hasAudio
+  const undoable = track.kind === "audio" || track.kind === "sample"
 
   useEffect(() => {
     if (!confirming) return
@@ -105,12 +106,21 @@ function RemoveButton({ track }: { track: TrackState }) {
     return () => window.clearTimeout(id)
   }, [confirming])
 
+  const title = undoable
+    ? confirming
+      ? "Remove it. Undo restores the whole track, including recorded audio."
+      : `Remove ${track.name}. Undo restores it.`
+    : confirming
+      ? "Remove it."
+      : `Remove ${track.name}.`
+
   return (
     <button
       type="button"
       className={styles.remove}
       data-confirm={confirming}
       aria-label={confirming ? "Confirm remove track" : "Remove track"}
+      title={title}
       onClick={() => {
         if (guarded && !confirming) setConfirming(true)
         else engine.removeTrack(track.id)

@@ -155,3 +155,24 @@
   line-height: 1.5;
   color: var(--color-ink-3);
 }
+
+/* Phones: the destructive controls and the rename target reach the 44 px touch size. */
+@media (max-width: 719.98px) {
+  .head {
+    min-height: var(--size-touch);
+  }
+
+  .name,
+  .nameInput {
+    height: var(--size-touch);
+  }
+
+  .clear {
+    min-height: var(--size-touch);
+  }
+
+  .remove {
+    width: var(--size-touch);
+    height: var(--size-touch);
+  }
+}
