@@ -16,6 +16,7 @@
 
 .head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   min-height: var(--size-control-m);
@@ -82,9 +83,29 @@
 
 .remove[data-confirm="true"] {
   width: auto;
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-1h);
   font-size: var(--text-sm);
   color: var(--color-ink);
+}
+
+/* Armed irreversible removal: red edge, tinted fill and red text, so the danger is visible on touch
+   where the title never shows. The text colour is mixed toward ink to stay legible on the tint. */
+.remove[data-danger="true"] {
+  background: color-mix(in oklch, var(--color-rec) 16%, var(--color-paper-3));
+  border-color: var(--color-rec);
+  color: color-mix(in oklch, var(--color-rec) 72%, var(--color-ink));
+}
+
+/* The irreversibility warning itself, for screen readers and as the button's description. */
+.warn {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .body {

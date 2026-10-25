@@ -358,3 +358,18 @@
     white-space: nowrap;
   }
 }
+
+/* The tempo is at most three digits (60–180). Measured: 332 px is the first width where a three-digit
+   tempo, two 44 px steps and the share/WAV buttons still share row 1; at 331 px and below the WAV
+   button drops to a third row. Only those narrowest phones take 40 px steps and a 15 px numeral;
+   every wider phone keeps 44 px steps and the 20 px numeral. */
+@media (max-width: 331.98px) {
+  .step {
+    width: var(--size-control-xl);
+    height: var(--size-control-xl);
+  }
+
+  .bpmNum {
+    font-size: var(--text-lg);
+  }
+}

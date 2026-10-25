@@ -368,6 +368,13 @@ describe("sample undo scope", () => {
     assert.equal(e.getSnapshot().canUndo, false)
   })
 
+  test("a removal with no undo step still reports itself through the status message", () => {
+    const e = new LoopEngine()
+    e.removeTrack("keys")
+    assert.equal(e.getSnapshot().message, "Keys removed. This can't be undone.")
+    assert.equal(e.getSnapshot().canUndo, false)
+  })
+
   test("a refused sample add leaves no undo entry", () => {
     const e = new LoopEngine()
     while (e.getSnapshot().tracks.length < MAX_TRACKS) assert.ok(e.addAudioTrack())

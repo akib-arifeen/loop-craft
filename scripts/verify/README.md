@@ -24,6 +24,24 @@ only reads what a listener would hear. Run from this folder with the dev or prod
      that must differ hugely
    - pass 2 vs pass 3 at the same offset (when loops >= 3), same control
 
+## Narrow-viewport header (`viewport_check.js`)
+
+One viewport per run; the script drives both tempos itself, so no audio start is needed.
+
+```bash
+agent-browser open http://localhost:3102
+for size in "320 568" "390 844" "420 700" "800 520"; do
+  agent-browser set viewport $size
+  agent-browser eval --stdin < viewport_check.js
+done
+```
+
+It sets 92 and 180 BPM through `window.__loopcraft.setBpm` and asserts, per tempo: one header row at
+≥720 px and two below, the WAV button still in the first row (a third row is what a wrapped header
+looks like), no horizontal page overflow, tempo steps ≥44 px (≥40 px below 332 px, where a
+three-digit tempo needs the room) and a tempo numeral that is not clipped. It restores the tempo and
+throws on failure: `PASS {...}` means the header survived a three-digit tempo at that width.
+
 ## Fake microphone (`make_tone.py`)
 `python3 make_tone.py tone.wav` writes a 48 kHz mono beep file (80 ms every 500 ms). Launch Chromium
 with `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream
