@@ -1,8 +1,9 @@
 // Header and tap-target check for one viewport. Run it once per size with the app served:
 //   agent-browser open http://localhost:3102
-//   agent-browser viewport 320 568
-//   agent-browser eval --stdin < viewport_check.js
-// (repeat for 420 700, 340 760, 390 844, 800 520, 1024 768)
+//   for size in "320 568" "390 844" "420 700" "800 520"; do
+//     agent-browser set viewport $size
+//     agent-browser eval --stdin < viewport_check.js
+//   done
 //
 // It sets the tempo to 92 and 180 BPM through the documented window.__loopcraft API and asserts, per
 // tempo: one header row at >= 720 px and two below, the WAV button still in the first row, no

@@ -96,6 +96,15 @@
   color: color-mix(in oklch, var(--color-rec) 72%, var(--color-ink));
 }
 
+/* While the irreversible removal is armed, Clear gives way. It is the widest thing beside the button,
+   so keeping it would wrap the head and slide the confirmation out from under the tap that armed it —
+   a second tap at the same point would land on Clear and wipe the pattern instead. Hiding it keeps the
+   head on one line and the armed button over the spot that was just tapped; the rule stops applying
+   when arming times out, so Clear returns untouched. */
+.head:has(.remove[data-danger="true"]) .clear {
+  display: none;
+}
+
 /* The irreversibility warning itself, for screen readers and as the button's description. */
 .warn {
   position: absolute;

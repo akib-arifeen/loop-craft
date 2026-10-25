@@ -42,6 +42,29 @@ looks like), no horizontal page overflow, tempo steps ≥44 px (≥40 px below 3
 three-digit tempo needs the room) and a tempo numeral that is not clipped. It restores the tempo and
 throws on failure: `PASS {...}` means the header survived a three-digit tempo at that width.
 
+## Irreversible-removal confirm target (`remove_confirm_check.js`)
+
+One viewport per run, on a freshly loaded demo session (the check removes Drums, so reload before the
+next size):
+
+```bash
+agent-browser open http://localhost:3102
+agent-browser click '[role="dialog"] button'      # start the demo; the track list is inert behind the gate
+agent-browser set viewport 800 520
+agent-browser eval --stdin < remove_confirm_check.js
+agent-browser open http://localhost:3102           # fresh session
+agent-browser click '[role="dialog"] button'
+agent-browser set viewport 320 568
+agent-browser eval --stdin < remove_confirm_check.js
+```
+
+It takes the centre of the unarmed Remove button and taps twice at exactly that point: the first tap
+must only arm, the point must still hit the armed button (Clear steps is hidden while arming, so the
+header cannot wrap and slide the confirmation out from under the pointer), the second tap must remove
+the track, and the drum pattern must never be cleared. It also waits out the 3 s arming timeout and
+asserts Clear comes back with the pattern unchanged. With Clear left visible the same check fails with
+*"the tap point hits \"Clear steps\" instead of the confirm button"*.
+
 ## Fake microphone (`make_tone.py`)
 `python3 make_tone.py tone.wav` writes a 48 kHz mono beep file (80 ms every 500 ms). Launch Chromium
 with `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream
