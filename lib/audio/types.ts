@@ -298,7 +298,11 @@ export interface LoopEngineApi {
   auditionSample(sampleId: string): boolean
   /** Stops the current preview. Safe to call when nothing is auditioning. */
   stopAudition(): void
-  /** Removes a track. Removing a "sample" track is undoable; removing any other kind is not. */
+  /**
+   * Removes a track as one undo step: its state, slot, selection and (for a recorded or rendered
+   * track) its audio are restored. At the track cap the step stays on the stack and applies after a
+   * slot is freed; the removal itself frees the slot it later needs.
+   */
   removeTrack(id: string): void
   /** Audio track: drops the recording (undoable). Drum track: clears every step (undoable). */
   clearTrack(id: string): void

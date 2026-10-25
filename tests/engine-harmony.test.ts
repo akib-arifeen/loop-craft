@@ -165,6 +165,11 @@ describe("undo / redo and track removal", () => {
     e.setKey("D", "dorian")
     e.removeTrack("keys")
     e.removeTrack("bass")
+    // Each removal is one step of its own; the key change sits beneath both of them.
+    e.undo()
+    assert.equal(e.getSnapshot().tracks.some((t) => t.id === "bass"), true)
+    e.undo()
+    assert.equal(e.getSnapshot().tracks.some((t) => t.id === "keys"), true)
     e.undo()
     assert.deepEqual(e.getSnapshot().harmony, demoHarmony())
   })

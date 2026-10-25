@@ -190,6 +190,115 @@ describe("audio removal undo", () => {
     assert.equal(e.debug.buffer("loop-a"), null)
     assert.equal(e.getSnapshot().tempoLocked, false)
   })
+
+  test("a cap-blocked recorded-loop undo restores after a removal frees a slot", () => {
+    const e = new LoopEngine()
+    const fake = installBuffer(e)
+    while (e.getSnapshot().tracks.length < MAX_TRACKS) assert.ok(e.addAudioTrack())
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+
+    e.removeTrack("loop-a")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+    assert.ok(e.addAudioTrack())
+    const filler = e.getSnapshot().tracks[e.getSnapshot().tracks.length - 1].id
+
+    e.undo()
+    assert.equal(track(e, "loop-a"), undefined)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.match(e.getSnapshot().message ?? "", /Free a track slot/)
+    assert.equal(e.getSnapshot().canUndo, true)
+
+    e.removeTrack(filler)
+    e.undo()
+    assert.equal(track(e, "loop-a")?.kind, "audio")
+    assert.equal(e.debug.buffer("loop-a"), fake, "the recorded buffer is kept across the blocked retry")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().tempoLocked, true)
+    assert.equal(e.getSnapshot().message, "Undone.")
+  })
+})
+
+describe("built-in track removal undo", () => {
+  test("removing at the track cap restores the exact state, rendered buffer, slot and selection", () => {
+    const e = new LoopEngine()
+    const fake = installBuffer(e, "keys")
+    e.setTrack("keys", { name: "Pads", volume: 0.31, pan: 0.4, muted: true })
+    e.setTrackFx("keys", { filter: -0.2, reverb: 0.7 })
+    e.selectTrack("keys")
+    const state = track(e, "keys")!
+    const index = e.getSnapshot().tracks.findIndex((t) => t.id === "keys")
+    while (e.getSnapshot().tracks.length < MAX_TRACKS) assert.ok(e.addAudioTrack())
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+
+    e.removeTrack("keys")
+    assert.equal(track(e, "keys"), undefined)
+    assert.equal(e.debug.buffer("keys"), null)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+    assert.match(e.getSnapshot().message ?? "", /Undo restores it/)
+
+    e.undo()
+    const restored = track(e, "keys")!
+    assert.equal(restored.kind, "keys")
+    assert.equal(restored.name, "Pads")
+    assert.equal(restored.volume, 0.31)
+    assert.equal(restored.pan, 0.4)
+    assert.equal(restored.muted, true)
+    assert.deepEqual(restored.fx, state.fx)
+    assert.equal(restored.patternId, state.patternId)
+    assert.equal(restored.hasAudio, true)
+    assert.equal(e.debug.buffer("keys"), fake, "the exact rendered buffer is restored")
+    assert.equal(e.getSnapshot().tracks[index].id, "keys", "the original slot")
+    assert.equal(e.getSnapshot().selectedTrackId, "keys", "the selection from before the removal")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().message, "Undone.")
+    assert.equal(e.getSnapshot().canRedo, true)
+
+    e.redo()
+    assert.equal(track(e, "keys"), undefined)
+    assert.equal(e.debug.buffer("keys"), null)
+    e.undo()
+    assert.deepEqual(track(e, "keys"), restored)
+    assert.equal(e.debug.buffer("keys"), fake)
+  })
+
+  test("removing and restoring a built-in track repeatedly never exceeds the cap", () => {
+    const e = new LoopEngine()
+    while (e.getSnapshot().tracks.length < MAX_TRACKS) assert.ok(e.addAudioTrack())
+    for (let i = 0; i < 3; i++) {
+      e.removeTrack("bass")
+      assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+      e.undo()
+      assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+      assert.equal(track(e, "bass")?.kind, "bass")
+      e.redo()
+      assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+      e.undo()
+      assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    }
+  })
+
+  test("a stale rendered buffer is re-rendered, not restored, and the step is kept", () => {
+    const e = new LoopEngine()
+    installBuffer(e, "keys", 96) // the engine's L is still 1, as before audio starts
+    e.removeTrack("keys")
+    e.undo()
+    assert.equal(track(e, "keys")?.kind, "keys")
+    assert.equal(e.debug.buffer("keys"), null, "old-length audio must never be attached")
+    assert.equal(e.getSnapshot().message, "Undone.")
+    assert.equal(e.getSnapshot().canRedo, true)
+  })
+
+  test("a loop-length change keeps a built-in removal step but drops its old-length audio", () => {
+    const e = new LoopEngine()
+    installBuffer(e, "keys")
+    e.removeTrack("keys")
+    e.setBars(2)
+    assert.equal(e.getSnapshot().canUndo, true, "a built-in removal step is not recorded-audio history")
+    e.undo()
+    assert.equal(track(e, "keys")?.kind, "keys")
+    assert.equal(e.debug.buffer("keys"), null)
+    assert.equal(e.getSnapshot().message, "Undone.")
+  })
 })
 
 describe("audio undo across a retime", () => {
@@ -279,23 +388,115 @@ describe("undo status and track cap", () => {
     assert.equal(e.getSnapshot().message, "Redone.")
   })
 
-  test("a cap-blocked undo keeps its step and explains, then succeeds after a slot is freed", () => {
+  test("a cap-blocked undo keeps its step and succeeds once a removal frees a slot", () => {
     const e = new LoopEngine()
-    e.removeTrack("loop-a")
+    const keysBefore = e.getSnapshot().tracks.find((t) => t.id === "keys")!
     while (e.getSnapshot().tracks.length < MAX_TRACKS) assert.ok(e.addAudioTrack())
     assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
-    const beforeTracks = e.getSnapshot().tracks.length
+
+    e.removeTrack("keys")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+    // Adding an empty loop track is not an undo step, so it can refill the slot without burying
+    // the removal step.
+    assert.ok(e.addAudioTrack())
+    const added = e.getSnapshot().tracks[e.getSnapshot().tracks.length - 1].id
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
 
     e.undo()
-    assert.equal(track(e, "loop-a"), undefined)
-    assert.equal(e.getSnapshot().tracks.length, beforeTracks)
+    assert.equal(track(e, "keys"), undefined)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
     assert.equal(e.getSnapshot().canUndo, true, "a cap-blocked step must remain undoable")
     assert.match(e.getSnapshot().message ?? "", /Free a track slot/)
 
-    // Freeing a slot with a synth track has no undo step of its own, so the same removal is on top.
-    e.removeTrack("keys")
+    // Freeing the slot is itself a removal; it must not bury the step that is waiting for it.
+    e.removeTrack(added)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
     e.undo()
-    assert.equal(track(e, "loop-a")?.kind, "audio")
+    assert.deepEqual(track(e, "keys"), keysBefore)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().message, "Undone.")
+    assert.equal(e.getSnapshot().canUndo, true, "the freeing removal is still on the stack")
+
+    // The slot is full again, so the freeing removal's own restore waits too, without being lost.
+    e.undo()
+    assert.equal(track(e, added), undefined)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().canUndo, true, "a cap-blocked removal keeps its step")
+    assert.match(e.getSnapshot().message ?? "", /Free a track slot/)
+  })
+
+  test("a cap-blocked redo survives later edits and applies once a slot is free", () => {
+    const e = new LoopEngine()
+    const id = e.addSampleTrack("keys-am7-rhodes")!
+    e.undo()
+    assert.equal(e.getSnapshot().canRedo, true)
+    while (e.getSnapshot().tracks.length < MAX_TRACKS) assert.ok(e.addAudioTrack())
+
+    e.redo()
+    assert.equal(track(e, id), undefined)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().canRedo, true, "a cap-blocked redo must remain redoable")
+    assert.match(e.getSnapshot().message ?? "", /Free a track slot, then redo again\./)
+
+    // Both clearRedo() paths: a new mix step, then a coalesced continuation of it.
+    e.setTrack("drums", { volume: 0.5 })
+    e.setTrack("drums", { volume: 0.4 })
+    assert.equal(e.getSnapshot().canRedo, true, "the blocked redo survives later edits")
+    assert.equal(track(e, id), undefined)
+
+    e.removeTrack("keys")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+    assert.equal(e.getSnapshot().canRedo, true, "the freeing removal keeps the blocked redo")
+
+    e.redo()
+    assert.equal(track(e, id)?.kind, "sample")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().message, "Redone.")
+    assert.equal(e.getSnapshot().canRedo, false)
+  })
+
+  test("a new edit still clears an ordinary redo step", () => {
+    const e = new LoopEngine()
+    const id = e.addSampleTrack("keys-am7-rhodes")!
+    e.undo()
+    assert.equal(e.getSnapshot().canRedo, true)
+    e.setTrack("drums", { volume: 0.5 })
+    assert.equal(e.getSnapshot().canRedo, false, "an unblocked redo step is still cleared")
+    e.redo()
+    assert.equal(track(e, id), undefined)
+  })
+
+  test("a blocked retry needs intervening edits unwound before a removal swaps again", () => {
+    const e = new LoopEngine()
+    const keysBefore = e.getSnapshot().tracks.find((t) => t.id === "keys")!
+    while (e.getSnapshot().tracks.length < MAX_TRACKS) assert.ok(e.addAudioTrack())
+    e.removeTrack("keys")
+    const filler = e.addAudioTrack()!
+    e.undo()
+    assert.match(e.getSnapshot().message ?? "", /Free a track slot/)
+    assert.equal(track(e, "keys"), undefined)
+
+    // An unrelated edit lands above the waiting step. The next removal must not skip over it.
+    e.setTrack("drums", { volume: 0.2 })
+    e.removeTrack(filler)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+    e.undo()
+    assert.equal(track(e, filler)?.kind, "audio")
+    assert.equal(track(e, "keys"), undefined, "the removal did not reach past the mix step")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
+    assert.equal(e.getSnapshot().message, "Undone.")
+
+    // Unwinding the intervening edit puts the blocked step back on top.
+    e.undo()
+    assert.equal(track(e, "drums")!.volume, 0.85)
+    assert.equal(track(e, "keys"), undefined)
+
+    // The next removal swaps with it, and the waiting restore applies.
+    e.removeTrack("loop-1")
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS - 1)
+    e.undo()
+    assert.deepEqual(track(e, "keys"), keysBefore)
+    assert.equal(e.getSnapshot().tracks.length, MAX_TRACKS)
     assert.equal(e.getSnapshot().message, "Undone.")
   })
 })
@@ -360,19 +561,23 @@ describe("export readiness", () => {
 })
 
 describe("sample undo scope", () => {
-  test("synth removals and addAudioTrack stay outside the undo history", () => {
+  test("synth removals are one undo step; addAudioTrack stays outside the history", () => {
     const e = new LoopEngine()
     assert.ok(e.addAudioTrack())
     assert.equal(e.getSnapshot().canUndo, false)
+    const before = e.getDocument()
     e.removeTrack("keys")
+    assert.equal(e.getSnapshot().canUndo, true)
+    e.undo()
+    assert.deepEqual(e.getDocument(), before)
     assert.equal(e.getSnapshot().canUndo, false)
   })
 
-  test("a removal with no undo step still reports itself through the status message", () => {
+  test("removing a built-in track reports that Undo restores it", () => {
     const e = new LoopEngine()
     e.removeTrack("keys")
-    assert.equal(e.getSnapshot().message, "Keys removed. This can't be undone.")
-    assert.equal(e.getSnapshot().canUndo, false)
+    assert.equal(e.getSnapshot().message, "Track removed. Undo restores it.")
+    assert.equal(e.getSnapshot().canUndo, true)
   })
 
   test("a refused sample add leaves no undo entry", () => {

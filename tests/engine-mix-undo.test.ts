@@ -99,28 +99,35 @@ describe("mix undo", () => {
     near(track(e, "keys").fx.reverb, 0.9)
   })
 
-  test("removeTrack drops that track's mix entries; undo neither resurrects it nor throws", () => {
+  test("removeTrack drops that track's mix entries; its removal still restores the track", () => {
     const e = new LoopEngine()
     e.setTrack("drums", { volume: 0.5 })
     e.setTrack("keys", { volume: 0.2 })
     e.setTrackFx("keys", { reverb: 0.9 })
     e.removeTrack("keys")
     assert.equal(e.getSnapshot().tracks.some((t) => t.id === "keys"), false)
-    assert.doesNotThrow(() => e.undo())
-    assert.equal(e.getSnapshot().tracks.some((t) => t.id === "keys"), false)
-    // the other track's history survives and is the entry that was undone
+    e.undo()
+    // Only the removal step inverses the removal: the keys mix history was dropped with the track.
+    assert.equal(track(e, "keys").volume, 0.2)
+    near(track(e, "keys").fx.reverb, 0.9)
+    assert.equal(e.getSnapshot().canUndo, true)
+    assert.equal(e.getSnapshot().canRedo, true)
+    // The other track's older history survives and is the next step.
+    e.undo()
     near(track(e, "drums").volume, 0.85)
+    near(track(e, "keys").volume, 0.2)
     assert.equal(e.getSnapshot().canUndo, false)
     assert.doesNotThrow(() => e.undo())
     assert.doesNotThrow(() => e.redo())
-    assert.doesNotThrow(() => e.redo())
-    assert.equal(e.getSnapshot().tracks.some((t) => t.id === "keys"), false)
   })
 
-  test("removing a track with only mix history leaves nothing to undo", () => {
+  test("removing a track with only mix history restores it and leaves nothing else to undo", () => {
     const e = new LoopEngine()
     e.setTrack("keys", { pan: -0.5 })
     e.removeTrack("keys")
+    assert.equal(e.getSnapshot().canUndo, true)
+    e.undo()
+    assert.equal(track(e, "keys").pan, -0.5)
     assert.equal(e.getSnapshot().canUndo, false)
     assert.doesNotThrow(() => e.undo())
   })
