@@ -191,6 +191,7 @@ export class LoopEngine implements LoopEngineApi {
   // render queue
   private queue: Promise<void> = Promise.resolve()
   private pendingRenders = new Set<string>()
+  private rendersInFlight = new Set<string>()
   private retimeQueued = false
   private retiming = false
 
@@ -218,6 +219,7 @@ export class LoopEngine implements LoopEngineApi {
   private buildSnapshot(): EngineSnapshot {
     const recordedLoops = this.tracks.reduce((n, t) => n + (t.kind === "audio" && this.buffers.has(t.id) ? 1 : 0), 0)
     const expectedL = this.ctx ? loopFrameCount(this.bpm, this.bars, this.sr) : 0
+    const rendering = this.pendingRenders.size > 0 || this.rendersInFlight.size > 0
     return {
       status: this.status,
       error: this.error,
@@ -229,7 +231,8 @@ export class LoopEngine implements LoopEngineApi {
       loopFrames: this.L,
       sampleRate: this.sr,
       retiming: this.retiming,
-      exportReady: this.audioReady && !this.retiming && this.L === expectedL,
+      rendering,
+      exportReady: this.audioReady && !this.retiming && !rendering && this.L === expectedL,
       metronome: this.metronome,
       masterVolume: this.masterVolume,
       tracks: this.tracks.slice(),
@@ -448,6 +451,7 @@ export class LoopEngine implements LoopEngineApi {
       this.countInSrc = null
       this.noise = null
       this.pendingRenders.clear()
+      this.rendersInFlight.clear()
       this.startPromise = null
       this.status = "idle"
       this.error = null
@@ -468,14 +472,20 @@ export class LoopEngine implements LoopEngineApi {
     this.pendingRenders.add(id)
     this.enqueue(this.track(id)?.name ?? id, async () => {
       this.pendingRenders.delete(id)
-      const t = this.track(id)
-      if (!t || t.kind === "audio") return
-      const sr = this.sr
-      const L = this.L
-      const bars = this.loopBars
-      const buffer = await synthSource(t, this.harmony).render({ sampleRate: sr, loopFrames: L, bars })
-      if (L !== this.L || !this.track(id)) return // retimed or removed meanwhile; the retime job re-renders
-      this.applyBuffer(id, buffer)
+      this.rendersInFlight.add(id)
+      try {
+        const t = this.track(id)
+        if (!t || t.kind === "audio") return
+        const sr = this.sr
+        const L = this.L
+        const bars = this.loopBars
+        const buffer = await synthSource(t, this.harmony).render({ sampleRate: sr, loopFrames: L, bars })
+        if (L !== this.L || !this.track(id)) return // retimed or removed meanwhile; the retime job re-renders
+        this.applyBuffer(id, buffer)
+      } finally {
+        this.rendersInFlight.delete(id)
+        this.emit()
+      }
     })
   }
 
@@ -1566,8 +1576,13 @@ export class LoopEngine implements LoopEngineApi {
 
   async exportWav(loops = 2): Promise<Blob> {
     if (!this.ctx) throw new Error("Start the engine first")
-    if (!this.audioReady || this.retiming || this.L !== loopFrameCount(this.bpm, this.bars, this.sr)) {
-      throw new Error("The audio is still catching up with the tempo. Try exporting again in a moment.")
+    if (!this.audioReady) throw new Error("The audio is still starting. Try exporting again in a moment.")
+    if (this.retiming) throw new Error("Wait for the tempo change to finish, then export again.")
+    if (this.L !== loopFrameCount(this.bpm, this.bars, this.sr)) {
+      throw new Error("The tempo change didn't finish, so the audio doesn't match the current tempo. Set the tempo or loop length again.")
+    }
+    if (this.pendingRenders.size > 0 || this.rendersInFlight.size > 0) {
+      throw new Error("A track is still rendering. Try exporting again in a moment.")
     }
     this.exporting = true
     this.emit()
@@ -1700,7 +1715,7 @@ export class LoopEngine implements LoopEngineApi {
     }
     const changedTempo = project.bpm !== this.bpm || project.bars !== this.bars
     if (this.snap.tempoLocked && changedTempo) {
-      const error = "Clear the recorded loops before importing a project with a different tempo"
+      const error = "Clear the recorded loops before importing a project with a different tempo or loop length"
       this.setMessage(error)
       return { ok: false, error }
     }

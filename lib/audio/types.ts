@@ -120,7 +120,9 @@ export interface EngineSnapshot {
   sampleRate: number
   /** True while a tempo/length retime is queued or rendering; loopFrames may not match bpm/bars yet. */
   retiming: boolean
-  /** True when exportWav can render audio that matches the current bpm/bars. */
+  /** True while any track render is queued or in flight. */
+  rendering: boolean
+  /** True when exportWav can render audio that matches the current bpm/bars and every track buffer. */
   exportReady: boolean
   metronome: boolean
   masterVolume: number

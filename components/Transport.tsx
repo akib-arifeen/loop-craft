@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { BAR_OPTIONS, MAX_BPM, MIN_BPM } from "@/lib/audio/types"
-import { exportFileName, formatSeconds, loopDurationSeconds } from "@/lib/audio/timing"
+import { exportFileName, formatSeconds, loopDurationSeconds, loopFrameCount } from "@/lib/audio/timing"
 import { Check, Download, Keyboard, Link, Lock, Metronome, Play, Record, Redo, Stop, Undo } from "./icons"
 import { setShortcuts, toggleRecord, useAnimationFrame, useEngine, useShortcuts } from "./useEngine"
 import ProjectBridge from "./ProjectBridge"
@@ -44,11 +44,19 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
     snap.sampleRate > 0 && snap.loopFrames > 0
       ? exportFileName({ bpm: snap.bpm, bars: snap.bars, loops: exportLoops, loopFrames: snap.loopFrames, sampleRate: snap.sampleRate })
       : "loopcraft.wav"
+  const expectedLoopFrames = snap.sampleRate > 0 ? loopFrameCount(snap.bpm, snap.bars, snap.sampleRate) : 0
+  const failedRetime = snap.sampleRate > 0 && snap.loopFrames !== expectedLoopFrames
   const exportTitle = snap.exportReady
     ? `Export WAV: ${exportLoops} loops of ${exportBars} at ${snap.bpm} BPM, ${exportDurationLabel} total`
-    : snap.retiming
-      ? "Wait for the tempo change to finish, then export"
-      : "Export is unavailable until the audio is ready"
+    : snap.status === "idle" || snap.status === "starting"
+      ? "Wait for the audio to start, then export"
+      : snap.retiming
+        ? "Wait for the tempo change to finish, then export"
+        : failedRetime
+          ? "The tempo change didn't finish. Set the tempo or loop length again, then export."
+          : snap.rendering
+            ? "Wait for the new track to finish rendering, then export"
+            : "Export is unavailable until the audio is ready"
   const exportDisabled = !snap.exportReady || snap.exporting
 
   const slowerUnavailable = locked || snap.bpm <= MIN_BPM
@@ -142,7 +150,7 @@ export default function Transport({ onNotice }: { onNotice: (text: string) => vo
           <span className={`mono ${styles.bpmNum}`} title={locked ? tempoLockTitle : undefined}>
             {snap.bpm}
           </span>
-          <span className={styles.label}>{locked ? "locked" : "BPM"}</span>
+          <span className={styles.label}>{locked ? "BPM · locked" : "BPM"}</span>
         </span>
         <button
           type="button"
